@@ -1,0 +1,103 @@
+product_id,product_code,item_name,item_description,product_group,price,gross_price
+1,,International Courier Post,,Freight,0,0
+2,,Consumables,Purchase of consumables on behalf,Consumables,0,0
+3,,Pallet Wrapping,Wrapping of pallets following devanning,Pallet,0,0
+4,,Access/onsell product,,Access/onsell,0,0
+5,,Commision,Commission,Commision,0,0
+6,,Contract hours,Monthly account for contracted hours worked,Contract,0,0
+7,,Contract work,Hours worked,Contract,25.75,29.61
+8,,Documentation,,Documentation,0,0
+9,,Risk Surcharge,Risk Surcharge,Risk,0,0
+10,,Transport/mileage,,Transport/mileage,0,0
+11,,Transport/mileage,,Transport/mileage,0,0
+12,,Fruit Tree ties Nylon,,Fruit,0,0
+13,KLIPFRU001,Fruit Tree ties Nylon:Fruit Tree Nylon - BULK,Fruit Tree (Nylon) BULK 5000,Fruit Tree ties Nylon,259.08,297.94
+14,KLIPFRU002,Fruit Tree ties Nylon:Fruit Tree - Nylon,Fruit Tree (Nylon) - 500,Fruit Tree ties Nylon,26.7,30.71
+15,KLIPFRU003,Fruit Tree ties PP:Fruit Tree Polypropylene - BULK,Fruit Tree Polypropylene BULK 5000,Fruit Tree ties PP,259.08,297.94
+16,KLIPFRU004,Fruit Tree ties PP:Fruit Tree - Polypropylene,Fruit Tree (Polypropylene) 500,Fruit Tree ties PP,26.7,30.71
+17,KLIPGIRD01,Girdling Tool,Klipon Girdling Tool,Girdling,59.4,68.31
+18,KLIPGRIP01,Grip Klip:Grip Klip Bulk,"Grip Klip - black - bulk 12,000",Grip Klip,238.75,274.56
+19,KLIPGRIP02,"Grip Klip:Grip Klip 1,000","Grip Klip - black - 1,000",Grip Klip,20.77,23.89
+20,KLIPHORTI1,Horti Tube,Green Tubing 3000 per carton..Bundles of 25,Horti,150,172.5
+21,KLIPIRIG01,Irrigation:13mm,Irrigation Ties 13mm - 1000,Irrigation,27.25,31.34
+22,KLIPIRIG02,Irrigation:19mm,Irrigation Ties - 19mm - 1000,Irrigation,28.3,32.55
+23,KLIPIRIG03,Irrigation:25mm,Irrigation Ties - 25mm - 500,Irrigation,15.49,17.81
+24,KLIPIRIG04,Irrigation:32mm,Irrigation Ties - 32mm - 500,Irrigation,16.7,19.21
+25,KLIPJUST01,Justy - Clip:Black,"Justy Clip - Black - 1,000",Justy - Clip,20.31,23.36
+26,KLIPJUST02,Justy - Clip:Red,"Justy Clip - Red - 1,000",Justy - Clip,20.61,23.7
+27,KLIPKAB001,KAB Klips:KAB Klip,KAB Klips - 100,KAB Klips,15.86,18.24
+28,KLIPKAB002,KAB Klips:Cable Tie,Cable Ties - 100 pkts,KAB Klips,12.7,14.61
+29,KLIPKIWI01,Kiwi Klip:Black:Bulk,"KiwiKlip - Black - 20,000 bulk",Kiwi Klip,310.47,357.04
+30,KLIPKIWI01,Kiwi Klip:Black:Bulk D/D,"Kiwiklip - Black - 20,000 bulk  - D/D",Kiwi Klip,278.25,319.99
+31,KLIPKIWI02,Kiwi Klip:Black:Carton,"KiwiKlip - Black - 1,000",Kiwi Klip,16.95,19.49
+32,KLIPKIWI03,Kiwi Klip:Coloured:Bulk,"Kiwiklip - coloured - 20,000 bulk",Kiwi Klip,340.75,391.86
+33,KLIPKIWI03,Kiwi Klip:Coloured:Bulk D/D,"Kiwiklip - coloured - 20,000 - DD",Kiwi Klip,313.45,360.47
+34,KLIPKIWI04,Kiwi Klip:Coloured:Carton,"Kiwiklip - Coloured - 1,000",Kiwi Klip,18.55,21.33
+35,KLIPKLUB01,"Klugs 1:Klugs - Bulk 1,000",,Klugs 1,0,0
+36,KLIPKLUB02,Klugs 1:Klugs - Black 250's,Klugs - Black 250's,Klugs 1,19.92,22.91
+37,KLIPKLUB03,Klugs 1:Klug insert tool,Klugs insert tool x 1,Klugs 1,99,113.85
+38,KLIPKLUB04,Klugs 1:Klugs - Black 100's,Klugs - Black - 100s,Klugs 1,7.97,9.17
+39,KLIPTREE01,Tree:Tree Ties - Polyprop Bulk 5000,Tree Ties (Polypropylene) Bulk 5000,Tree,684.25,786.89
+40,KLIPTREE02,Tree:Tree Ties Polypropylene 100,Tree Ties (Polypropylene) 100,Tree,13.68,15.73
+41,KLIPTREE03,Tree:Tree Ties (Nylon)  Bulk 5000,Tree Ties (Nylon) Bulk 5000,Tree,684.25,786.89
+42,KLIPTREE04,Tree:Tree Ties (Nylon),Tree Ties (Nylon) - 100,Tree,13.68,15.73
+43,KLIPTREL01,"Trellis:Bulk 10,000","Trellis Ties Bulk 10,000",Trellis,185.4,213.21
+44,KLIPTREL02,"Trellis:Bulk 12,000","Trellis Ties Bulk 12,000",Trellis,222.48,255.852
+45,KLIPTREL03,Trellis:Carton,"Trellis Ties - 1,000",Trellis,20.57,23.66
+46,KLIPTUIT06,Tu-iT Ties 1:Tuit Ties Retail Packs,Pack of 100..,Tu-iT Ties 1,4.25,4.89
+47,KLIPTUIT01,Tu-iT Ties 1:Cloth - manuf,1Kg -Cloth  manufactured,Tu-iT Ties 1,15,17.25
+48,KLIPTUIT02,Tu-iT Ties 1:Cloth Tu-iT Ties 10Kg,10Kg Bundled Cloth Tu-iT Ties,Tu-iT Ties 1,122.37,140.73
+49,KLIPTUIT03,Tu-iT Ties 1:Cloth Tu-it Ties 1Kg,1Kg Bundled Cloth Tu-iT Ties,Tu-iT Ties 1,12.66,14.56
+50,KLIPTUIT04,Tu-iT Ties 1:Nylon Tu-iT Ties 10Kg,10Kg Bundled Nylon Tu-iT Ties,Tu-iT Ties 1,140.98,162.13
+51,KLIPTUIT05,Tu-iT Ties 1:Nylon Tu-iT Ties 1Kg,1Kg Bundled Nylon Tu-iT Ties,Tu-iT Ties 1,14.6,16.79
+52,KLIPTWIN01,"Twineklips:Bulk 20,000 Blk","Twineklips - Black 20,000",Twineklips,337.37,387.98
+53,KLIPTWIN02,"Twineklips:Bulk 20,000 Col","Twineklips - Coloured - 20,000",Twineklips,366.03,420.93
+54,KLIPTWIN03,Twineklips:Twineklip-black,Twineklip-black-1000s,Twineklips,16.89,19.42
+55,KLIPTWIN04,Twineklips:Twineklip-Red,"Twineklip-Red-1,000",Twineklips,18.31,21.06
+56,KLIPUNI001,Unitye:Bracket,Unityes  - Brackets,Unitye,0.25,0.2875
+57,KLIPUNI002,Unitye:Strap,Unityes  - Strap only,Unitye,0.53,0.61
+58,KLIPUKLIP1,U-klip Large,U-klip black Nylon Large,U-klip,0.24,0.28
+59,KLIPUKLIP2,Uklip Small,Uklip Nylon Small,Uklip,0.13,0.15
+60,KLIPVINE01,Vine:Black:Carton 3.1mm,"Vine Ties - Black 3.1mm 1,000",Vine,19.37,22.28
+61,KLIPVINE02,Vine:Black:Bulk Carton -1,"Vine Ties - Black - 20,000 bulk ctn",Vine,308.94,355.28
+62,KLIPVINE02,Vine:Black:Bulk Carton D/D,"Vine Ties - Black - 20,000 bulk ctn - D/D",Vine,257.25,295.84
+63,KLIPVINE03,Vine:Black:Bulk LD bag,"Vine Ties - Black - 20,000 bulk local delivery  bag",Vine,308.94,355.28
+64,KLIPVINE03,Vine:Black:Bulk LD Bag D/D,"Vine Ties - Black - 20,000 bulk local delivery bag - D/D",Vine,257.25,295.84
+65,KLIPVINE04,Vine:Black:Carton,"Vine Ties - Black  - 1,000",Vine,16.51,18.99
+66,KLIPVINE05,Vine:3.1mm Coloured,Vine 3.1mm carton Coloured,Vine,19.79,22.76
+67,KLIPVINE06,Vine:Coloured:Bulk Carton - 1,"Vine Ties - Coloured - 20,000 bulk ctn",Vine,318.91,366.75
+68,KLIPVINE06,Vine:Coloured:Bulk Carton D/D,"Vine Ties - Coloured - 20,000 bulk ctn - D/D",Vine,288.75,332.06
+69,KLIPVINE08,Vine:Coloured:Carton,"Vine Ties - Coloured - 1,000",Vine,17.02,19.57
+70,KLIPWIRE01,Wire products:K Tite Wire strainer,K Tite - each,Wire products,1.75,2.01
+71,KLIPWIRE02,Wire products:K Tite Wire strainer - Bucket,K Tite - 100 per bucket,Wire products,175,201.25
+72,KLIPWIRE03,Wire products:R Tite Wire Strainer,R Tite - each,Wire products,1.65,1.9
+73,KLIPWIRE04,Wire products:R-Tite - Wire Strainer bucke100,R-Tite 100 per bucket,Wire products,165,189.75
+74,KLIPWIRE05,Wire products:Handle,Application Handle,Wire products,33.6,38.64
+75,KLIPWIRE06,Wire products:Wikiklip,Wire trellising Klip 1000,Wire products,99.33,114.23
+76,KLIPWIRE07,Wire products:Wikiklip Bulk,"Wikiklip Bulk 4,000",Wire products,340,391
+77,,Adjustment,,Adjustment,0.6,0.6
+78,,Promotional Material,Promotional Material,Promotional,3,3
+79,,Toyota Forklift,,Toyota,0,0
+80,,Power,Power charges for rentals,Power,0,0
+81,,Water Rates,Water rates - rentals,Water,0,0
+82,,Sale of Containers,On sell of containers,Sale,0,0
+83,,Sale of Containers,On sell of containers,Sale,0,0
+84,,Storage,Weekly storage charge or part thereof,Storage,6,6.9
+85,,Load Out Fee,Load out fee - storage of pallets - outwork,Load,6,6.9
+86,,Load in Fee,Load in Fee - pallets to storage - outwork,Load,6,6.9
+87,,Building Wash,Building Wash other buildings in Newton Street,Building,0,0
+88,,Container Devan,Outwork - devanning of containers,Container,0,0
+89,FR Couriers,Freight National,,Freight,0,0
+90,FR Couriers,Freight National,,Freight,0,0
+91,,Freight National:NZ Couriers,NZ Courier Charge,Freight National,0,0
+92,,Freight National:Other Freight,Non courier,Freight National,0,0
+93,,Freight National:Red - small parcel,Under 2Kg,Freight National,10.2,11.73
+94,,Freight National:Blue - Local,Delivery Charge,Freight National,9.08,10.44
+95,,Freight National:Green - Shorthaul,Delivery charge,Freight National,12.72,14.63
+96,,Freight National:Orange - within Is,Delivery charge,Freight National,17.91,20.6
+97,,Freight National:Yellow - Sth Island,Delivery charge,Freight National,32.43,37.29
+98,,Freight National:Rural Delivery,Rural Delivery Charge,Freight National,7.35,8.45
+99,,Fuel Surcharg,Fuel Surcharge,Fuel,0,0
+100,,Bank Transfer Fees,Bank transfer fees,Bank,0,0
+101,,Bank Transfer Fees,Bank transfer fees,Bank,0,0
+102,,write offs,,write,-0.01,-0.01

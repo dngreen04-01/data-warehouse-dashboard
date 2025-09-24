@@ -1,0 +1,89 @@
+*ContactName,AccountNumber,SAAttentionTo,SAAddressLine1,SAAddressLine2,SAAddressLine3,SAAddressLine4,SACity,SARegion,SAPostalCode,Latitude,Longitude,Cluster
+Farmlands - Alexandra,FL03,Alexandra  Farm Centre,1 Ngapara Street,1 Ngapara Street,ALEXANDRA,,Otago,,9320,-45.23007353,169.5276911764706,0
+Farmlands - Amberley,FL04,Amberley Farm Centre,(Farmlands),(Farmlands),22 Courage Road,AMBERLEY,Canterbury,,7410,-43.65527319,172.2386700483092,1
+Farmlands - Ashburton,FL05,Farmlands,418 West Street,418 West Street,South Canterbury,,Ashburton,,7700,-43.81836154,171.68223846153847,1
+Farmlands - Blenheim,FL06,Farmlands,15 Westwood Avenue,15 Westwood Avenue,Springlands,,Blenheim,,7201,-41.5093,173.9353,2
+Farmlands - Christchurch,FL07,Farmlands,156 Waterloo Road,156 Waterloo Road,Hornby,,Christchurch,,8042,-43.70518333,173.12151666666668,3
+Farmlands - Cromwell,FL08,Farmlands,22 Chardonnay Street,22 Chardonnay Street,,,Cromwell,,9310,-45.0395,169.1984,0
+Farmlands - Culverden,FL09,Farmlands,70 Mountain Road,70 Mountain Road,RD Culverden,,North Canterbury,,7392,-42.5739,172.5659,1
+Farmlands - Gisborne,FL10,Farmlands,110-112 Lowe Street,110-112 Lowe Street,,,Gisborne,,4040,-38.6673,178.0286,4
+Farmlands - Greymouth,FL11,Farmlands,30 Herbert Street,30 Herbert Street,GREYMOUTH,,West Coast,,7805,-42.4227726,171.28950821917806,5
+Farmlands - Greytown,FL12,Farmlands,219 Main Street,219 Main Street,,,Greytown,,5712,-41.0897,175.4497666666667,6
+Farmlands - Hastings,FL13,Farmlands Hastings,Warehouse #265-1001,7 Barnes Place,Twyford,,Hastings,,4175,-39.6279,176.8137,7
+Farmlands - Hautapu,FL14,Farmlands,64 Hautapu Road,64 Hautapu Road,RD1,,Cambridge,,3493,-37.8866,175.469,8
+Farmlands - Hawke's Bay Hub,FL01,,7 Barnes Place,Twyford,,,Twyford,,4175,-39.6232,176.7618,7
+Farmlands - Helensville,FL15,Farmlands,97 Mill Road,97 Mill Road,HELENSVILLE,,Northland,,800,-41.2869,174.7405,9
+Farmlands - Inglewood,FL02,Farmlands Inglewood,110 Rata Street,110 Rata Street,,,Inglewood,,4330,-39.1569,174.20505,10
+Farmlands - Kaikoura,FL16,Farmlands,70 Beach Road,70 Beach Road,RD,,Kaikoura,,7220,-42.4066,173.6889,11
+Farmlands - Kaitaia,FL17,Farmlands,31 North Park Drive,31 North Park Drive,KAITAIA,,Northland,,410,-41.2869,174.7405,9
+Farmlands - Kamo,FL18,Farmlands,2 Springs Flat Road,2 Springs Flat Road,KAMO,,Whangarei,,112,-35.71673333,174.32998125000003,12
+Farmlands - Kurow,FL19,Farmlands,34 Bledisloe Street,34 Bledisloe Street,Otago,,Rd    Kurow,,9435,-44.7296,170.334,13
+Farmlands - Levin,FL20,Farmlands Trading Society,537 Queen St,537 Queen St,,,Levin,,5510,-40.61316667,175.27936666666665,6
+Farmlands - Marton,FL21,Farmlands,61 Pukepapa Road,61 Pukepapa Road,,,Marton,,4710,-40.061675,175.358125,6
+Farmlands - Morrinsville,FL22,Farmlands,34 Lorne Street,34 Lorne Street,,,Morrinsville,,3300,-37.63723333,175.5006,8
+Farmlands - Motueka,FL23,Farmlands,393-395 High Street,393-395 High Street,,,Motueka,,7120,-41.1188,173.0119,14
+Farmlands - Napier,FL25,Farmlands Trading Society,200 Prebensen Drive,200 Prebensen Drive,Onekawa,,Napier,,4110,-39.50209143,176.87096000000005,7
+Farmlands - New Plymouth Bell Block,FL24,Farmlands New Plymouth,1121 Devon Road,Bell Block,,,New Plymouth,,4312,-39.0572,174.0741,10
+Farmlands - Opotiki,FL26,Farmlands,2  Potts Ave,2  Potts Ave,,,Opotiki,,3122,-38.00975,177.28175,15
+Farmlands - Otaki,FL27,Farmlands,Cnr Mill Rd & Dunstan St,Cnr Mill Rd & Dunstan St,,,Otaki,,5512,-40.75163333,175.14510000000004,6
+Farmlands - Palmerston North,FL28,Farmlands,505 Tremaine Avenue,505 Tremaine Avenue,Takaro,,Palmerston North,,4410,-40.3691,175.6288,6
+Farmlands - Pukekohe,FL29,Farmlands,86a Harris Street,86a Harris Street,,,Pukekohe,,2120,-37.20435,174.90015,16
+Farmlands - Rangiora,FL30,Farmlnds Rangiora,269 Flaxton Road,269 Flaxton Road,,,Rangiora,,7400,-43.3058,172.5992,1
+Farmlands - Richmond,FL31,Farmlands,32 Main Road,32 Main Road,RICHMOND,,Nelson,,7020,-41.2832,173.2772,14
+Farmlands - Rotorua,FL32,Farmlands Rotorua,36 Marguerita Street,36 Marguerita Street,Fenton Park,,Rotorua,,3010,-38.13305,176.22905,8
+Farmlands - Tauranga,FL33,Farmlands,20 Taurikura Drive,20 Taurikura Drive,Tauriko,,Tauranga,,3171,-37.68382,176.18428,8
+Farmlands - Te Awamutu,FL34,Farmlands,203 Benson Road,203 Benson Road,,,Te Awamutu,,3840,-38.01495,175.3271,8
+Farmlands - Te Puke,FL35,Farmlands,4 Boucher Ave,4 Boucher Ave,,,Te Puke,,3153,-37.8029,176.3146,8
+Farmlands - Te Puna,FL36,Farmlands,15B Minden Rd,15B Minden Rd,,,Te Puna,,3176,-37.7138,176.0076,8
+Farmlands - Waipapa,FL37,Farmlands,30 Klinac Lane,30 Klinac Lane,Kerikeri,,Waipapa,,230,-35.19145,173.89634999999998,17
+Farmlands - Wairoa,FL38,Farmlands,53 Bridge St,53 Bridge St,,,Wairoa,,4108,-39.0229,177.38913333333332,18
+Farmlands - Wanganui,FL39,Farmlands,49 Heads Road,49 Heads Road,Gonville,,Wanganui,,4500,-39.93195,175.0499,6
+Farmlands - Wellsford,FL40,Farmlands,113 Centennial Park Road,113 Centennial Park Road,Wellsford,,Northland,,900,-41.2869,174.7405,9
+Farmlands - Whakatane,FL41,Farmlands,35 Commerce Street,35 Commerce Street,,,Whakatane,,3120,-37.95395,176.9592,15
+Farmlands - Whakatu,FL42,Farmlands,233 Ruahapia Road,233 Ruahapia Road,RD10,WHAKATU,Hawkes Bay,,4172,-39.6588,176.9405,7
+Farmlands - Whangarei,FL43,Farmlands,10 Southend Avenue,10 Southend Avenue,Raumanga,,Whangarei,,110,-35.71673333,174.32998125000003,12
+Horticentre / TasmanCrop - Cromwell,HC01,Horticentre Ltd,22 Pinot Noir Drive,22 Pinot Noir Drive,,,Cromwell,,9310,-45.0395,169.1984,0
+Horticentre / TasmanCrop - Drury,HC02,Horticentre Limited,P O Box 547,P O Box 547,Auckland,,Drury,,2247,-37.10146667,174.9555,16
+Horticentre / TasmanCrop - Gisborne,HC03,Horticentre Ltd,32 Salesyards Rd,32 Salesyards Rd,R D 1 Matawhero,,Gisborne,,4071,-38.6673,178.0286,4
+Horticentre / TasmanCrop - Massey,HC04,Horticentre Ltd,18 Cabernet Crescent,18 Cabernet Crescent,Westgate,Massey,West Auckland,,614,-36.8546,174.584,16
+Horticentre / TasmanCrop - Motueka,HC05,Horticentre Limited,T/A Tasman Crop,T/A Tasman Crop,28 King Edward St,,Motueka,,7120,-41.1188,173.0119,14
+Horticentre / TasmanCrop - Pukekohe,HC06,Horticentre Limited,221 Manukau Rd,221 Manukau Rd,,,Pukekohe,,2120,-37.20435,174.90015,16
+Horticentre / TasmanCrop - Renwick,HC07,Horticentre Limited Blenheim,T/A Tasman Crop,T/A Tasman Crop,"Unit 11, Tyrone Park, Jacks Rd",BLENHEIM,Renwick,,7204,-41.5241,173.843775,2
+Horticentre / TasmanCrop - Richmond,HC08,Tasman Crop Protection,12 Poutama St,12 Poutama St,Nelson,,Richmond,,7020,-43.56825,171.9716,1
+Horticentre / TasmanCrop - Tauranga,HC09,Horticentre Ltd,135A Maleme Street,135A Maleme Street,Greerton,,Tauranga,,3112,-37.68382,176.18428,8
+Horticentre / TasmanCrop - Whakatu,HC10,Horticentre,18 Station Road,18 Station Road,RD 10,WHAKATU,Hastings,,4180,-39.6279,176.8137,7
+Horticentre / TasmanCrop - Whangarei,HC11,Horticentre Ltd,43 Porowini Avenue,43 Porowini Avenue,Morningside,,Whangarei,,110,-35.71673333,174.32998125000003,12
+PGG Wrightson Ltd - Alexandra,FF02,Fruitfed Supplies,Div of PGG Wrightson,Div of PGG Wrightson,2 MacLean Road,,Alexandra,,9320,-45.2502,169.3859,0
+PGG Wrightson Ltd - Amberley,FF03,PGG Wrightson,73 Carters Road,73 Carters Road,,,Amberley,,7410,-43.15416667,172.73106666666664,1
+PGG Wrightson Ltd - Blenheim,FF04,Fruitfed Supplies,Div of PGG Wrightson,Div of PGG Wrightson,20 Westwood Avenue,Springlands,Blenheim,,7201,-41.5093,173.9353,2
+PGG Wrightson Ltd - Cambridge,FF05,PGG WRIGHTSON,87 Duke Street,87 Duke Street,,,Cambridge,,3434,-37.8866,175.469,8
+PGG Wrightson Ltd - Cheviot,FF06,PGG Wrightson Cheviot,2 McQueen Road,2 McQueen Road,,,Cheviot,,7310,-42.8128,173.27465,1
+PGG Wrightson Ltd - Christchurch,FF07,PGG Wrightson,411 Blenheim Road,411 Blenheim Road,,,Christchurch,,8041,-43.70518333,173.12151666666668,3
+PGG Wrightson Ltd - Cromwell,FF08,Fruitfed Supplies,Div of PGG Wrightson,Div of PGG Wrightson,5 Iles Street,,Cromwell,,9310,-45.0395,169.1984,0
+PGG Wrightson Ltd - Culverden,FF01,PGG Wrightson Culverden,48 Main Road,48 Main Road,,,Culverden,,7392,-42.7747,172.8473,1
+PGG Wrightson Ltd - Dargaville,FF09,PGG Wrightson Dargaville,Totara Street,Totara Street,,,Dargaville,,310,-35.9413,173.8697,12
+PGG Wrightson Ltd - Feilding,FF10,PGG Wrightson,18 Manchester St,18 Manchester St,,,Feilding,,4702,-40.2219,175.56585,6
+PGG Wrightson Ltd - Geraldine,FF11,PGG Wrightson Ltd,58 Talbot Street,58 Talbot Street,Canterbury,,Geraldine,,7930,-44.0923,171.2428,1
+PGG Wrightson Ltd - Gisborne,FF12,Fruitfed Supplies,Div of PGG Wrightson,Div of PGG Wrightson,21 Solander St,,Gisborne,,4010,-38.6673,178.0286,4
+PGG Wrightson Ltd - Hastings,FF13,Fruitfed Supplies,Division of PGG Wrightson,Division of PGG Wrightson,Cnr Maraekakaho/Orchard Rd,,Hastings,,4120,-39.6279,176.8137,7
+PGG Wrightson Ltd - Helensville,FF14,Fruitfed Supplies,Div of PGG Wrightson,Div of PGG Wrightson,41B Mill Road,,Helensville,,840,-36.6816,174.4531,16
+PGG Wrightson Ltd - Invercargill,FF15,PGG Wrightson,232 Dee Street,232 Dee Street,Avenal,,Invercargill,,9810,-46.41468723,168.3717851,19
+PGG Wrightson Ltd - Katikati,FF16,Fruitfed Supplies,Div of PGG Wrightson,Div of PGG Wrightson,2 Marshall Road,,Katikati,,3129,-37.56176667,175.8998333333333,8
+PGG Wrightson Ltd - Levin,FF17,Fruitfed Supplies,Division of PGG Wrightson,Division of PGG Wrightson,84 Cambridge Street South,,Levin,,5510,-40.61316667,175.27936666666665,6
+PGG Wrightson Ltd - Martinborough,FF18,PGG Wrightson,43-45 Jellicoe Street,43-45 Jellicoe Street,,,Martinborough,,5700,-41.20873333,175.44986666666668,6
+PGG Wrightson Ltd - Masterton,FF19,PGG Wrightson,38 Lincoln Rd,38 Lincoln Rd,,,Masterton,,5810,-40.9606,175.654025,6
+PGG Wrightson Ltd - Motueka,FF20,Fruitfed Supplies,Div of PGG Wrightson,Div of PGG Wrightson,26 Old Wharf Street,,Motueka,,7120,-41.1188,173.0119,14
+PGG Wrightson Ltd - Porirua,FF21,PGG Wrightson,,PO Box 1961,DUNEDIN,,Dunedin,,1961,-45.87206667,170.505,20
+PGG Wrightson Ltd - Pukekohe,FF22,Fruitfed Supplies,Div of PGG Wrightson,Div of PGG Wrightson,219 Manukau Rd,,Pukekohe,,2120,-37.20435,174.90015,16
+PGG Wrightson Ltd - Richmond,FF23,Fruitfed Supplies,Div of PGG Wrightson,Div of PGG Wrightson,18 Estuary Place,RICHMOND,Nelson,,7020,-41.2832,173.2772,14
+PGG Wrightson Ltd - Roxburgh,FF24,PGG Wrightson,99 Scotland Street,99 Scotland Street,RD,,Roxburgh,,9500,-45.5415,169.3014,0
+PGG Wrightson Ltd - Te Puke,FF25,Fruitfed Supplies,Div of  PGG Wrightson,Div of  PGG Wrightson,7a Jocelyn Street,,Te Puke,,3119,-37.8029,176.3146,8
+PGG Wrightson Ltd - Temuka,FF26,PGG Wightson Temuka,3 Wood Street,3 Wood Street,,,Temuka,,7920,-44.2407,171.28125,1
+PGG Wrightson Ltd - Timaru,FF27,PGG Wrightson,325 Hilton Highway,325 Hilton Highway,Washdyke,,Timaru,,7910,-44.395,171.2532,1
+PGG Wrightson Ltd - Waihi,FF28,PGG Wrightson,116 Seddon Street,116 Seddon Street,,,Waihi,,3610,-37.388975,175.845875,8
+PGG Wrightson Ltd - Waipapa,FF29,Fruitfed Supplies,Div of PGG Wrightson,Div of PGG Wrightson,2 Pataka  Lane,RD2,Waipapa,,245,-35.19145,173.89634999999998,17
+PGG Wrightson Ltd - Wanganui,FF30,PGG Wrightson,99 Wilson Street,99 Wilson Street,,,Wanganui,,4500,-39.93195,175.0499,6
+PGG Wrightson Ltd - Wellsford,FF31,PGG Wrightson,4 Port Albert Road,4 Port Albert Road,,,Wellsford,,900,-36.2938,174.5238,16
+PGG Wrightson Ltd - Whakatane,FF32,PGG Wrightson,12-14 Peace Street,12-14 Peace Street,,,Whakatane,,3120,-37.95395,176.9592,15
+PGG Wrightson Ltd - Whangarei,FF33,PGG WRIGHTSON,Cnr Dent & Finlayson Sts,Cnr Dent & Finlayson Sts,,,Whangarei,,110,-35.71673333,174.32998125000003,12
+PGG Wrightson Ltd - Wyndham,FF34,PGG Wrightson,Balaclava Street,Balaclava Street,,,Wyndham,,9831,-46.3313,168.84575,19

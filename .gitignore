@@ -1,0 +1,36 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+
+# Virtual environments
+.venv/
+venv/
+
+# Streamlit cache
+.streamlit/
+
+# Environment files & secrets
+.env
+.env.*
+*.env
+
+# OS files
+.DS_Store
+
+# Notebooks checkpoints
+.ipynb_checkpoints/
+
+# CSV exports / temp files
+*.csv
+!dim_customer2.csv
+!dim_product4.csv
+!fct_invoice_clean.csv
+!fct_sales_line_clean1.csv
+!customer_clusters.csv
+!Cluster_Summary.csv
+
+# Logs
+*.log
