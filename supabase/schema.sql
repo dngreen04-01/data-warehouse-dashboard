@@ -136,6 +136,19 @@ begin
             error_message text
         );
     end if;
+
+    if not exists (
+        select 1 from information_schema.tables
+        where table_schema = 'dw' and table_name = 'xero_tokens'
+    ) then
+        create table dw.xero_tokens (
+            tenant_id text primary key,
+            refresh_token text not null,
+            access_token text not null,
+            token_expiry timestamptz not null,
+            updated_at timestamptz default timezone('utc', now())
+        );
+    end if;
 end$$;
 
 -- Convenience indexes

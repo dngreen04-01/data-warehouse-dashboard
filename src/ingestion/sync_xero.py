@@ -27,10 +27,44 @@ class XeroCredentials:
 
 
 class XeroClient:
-    def __init__(self, creds: XeroCredentials):
+    def __init__(self, creds: XeroCredentials, conn):
         self.creds = creds
+        self.conn = conn
         self.access_token: str | None = None
         self.token_expiry: datetime | None = None
+        self._load_stored_tokens()
+
+    def _load_stored_tokens(self):
+        """Load the latest refresh token from the database if available."""
+        with self.conn.cursor() as cur:
+            cur.execute(
+                "select refresh_token from dw.xero_tokens where tenant_id = %s order by updated_at desc limit 1",
+                (self.creds.tenant_id,)
+            )
+            row = cur.fetchone()
+            if row:
+                self.creds.refresh_token = row[0]
+
+    def _save_tokens(self, new_refresh_token: str, access_token: str, expires_in: int):
+        """Save the new tokens to the database."""
+        self.creds.refresh_token = new_refresh_token
+        self.access_token = access_token
+        self.token_expiry = pendulum.now("UTC").add(seconds=expires_in)
+
+        with self.conn.cursor() as cur:
+            cur.execute(
+                """
+                insert into dw.xero_tokens (tenant_id, refresh_token, access_token, token_expiry)
+                values (%s, %s, %s, %s)
+                on conflict (tenant_id) do update
+                set refresh_token = excluded.refresh_token,
+                    access_token = excluded.access_token,
+                    token_expiry = excluded.token_expiry,
+                    updated_at = timezone('utc', now())
+                """,
+                (self.creds.tenant_id, new_refresh_token, access_token, self.token_expiry),
+            )
+        self.conn.commit()
 
     def _refresh_access_token(self) -> None:
         response = requests.post(
@@ -42,10 +76,20 @@ class XeroClient:
             auth=(self.creds.client_id, self.creds.client_secret),
             timeout=30,
         )
-        response.raise_for_status()
+        try:
+            response.raise_for_status()
+        except requests.exceptions.HTTPError as e:
+            # If unauthorized, maybe the token is invalid. We can't do much but fail here.
+            print(f"Error refreshing token: {e}")
+            print(f"Response text: {response.text}")
+            raise
+
         payload = response.json()
-        self.access_token = payload["access_token"]
-        self.token_expiry = pendulum.now("UTC").add(seconds=int(payload["expires_in"]))
+        self._save_tokens(
+            payload["refresh_token"],
+            payload["access_token"],
+            int(payload["expires_in"])
+        )
 
     def _auth_header(self) -> dict:
         if not self.access_token or (self.token_expiry and pendulum.now("UTC") >= self.token_expiry):
@@ -290,7 +334,9 @@ def main():
         raise RuntimeError("Xero API credentials are not fully configured")
 
     conn = connect(conn_str, autocommit=False)
-    client = XeroClient(creds)
+
+    # Pass conn to XeroClient so it can read/write tokens
+    client = XeroClient(creds, conn)
 
     modified_since = get_last_sync(conn)
     invoices = client.fetch_invoices(modified_since)
