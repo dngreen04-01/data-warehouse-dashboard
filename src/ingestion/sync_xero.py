@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 from dataclasses import dataclass
 from datetime import date, datetime
@@ -13,6 +14,13 @@ import requests
 from dotenv import load_dotenv
 from psycopg import connect
 from psycopg import sql
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
 
 API_BASE = "https://api.xero.com/api.xro/2.0"
 TOKEN_URL = "https://identity.xero.com/connect/token"
@@ -32,64 +40,138 @@ class XeroClient:
         self.conn = conn
         self.access_token: str | None = None
         self.token_expiry: datetime | None = None
+        self.encryption_key = os.getenv("XERO_ENCRYPTION_KEY", "default-encryption-key-change-in-production")
         self._load_stored_tokens()
 
-    def _load_stored_tokens(self):
-        """Load the latest refresh token from the database if available."""
+    def _get_encryption_key(self) -> str:
+        """Get encryption key from environment, with warning if using default."""
+        key = self.encryption_key
+        if key == "default-encryption-key-change-in-production":
+            logger.warning("Using default encryption key. Set XERO_ENCRYPTION_KEY environment variable for production.")
+        return key
+
+    def _encrypt_token(self, token: str) -> bytes:
+        """Encrypt a token using pgcrypto."""
+        # We'll use a SQL function for encryption to ensure consistency
         with self.conn.cursor() as cur:
             cur.execute(
-                "select refresh_token from dw.xero_tokens where tenant_id = %s order by updated_at desc limit 1",
-                (self.creds.tenant_id,)
+                "select pgp_sym_encrypt(%s, %s)",
+                (token, self._get_encryption_key())
             )
-            row = cur.fetchone()
-            if row:
-                self.creds.refresh_token = row[0]
+            result = cur.fetchone()
+            return result[0] if result else b''
+
+    def _decrypt_token(self, encrypted_token: bytes) -> str:
+        """Decrypt a token using pgcrypto."""
+        with self.conn.cursor() as cur:
+            cur.execute(
+                "select pgp_sym_decrypt(%s, %s)",
+                (encrypted_token, self._get_encryption_key())
+            )
+            result = cur.fetchone()
+            return result[0].decode('utf-8') if result else ''
+
+    def _load_stored_tokens(self):
+        """Load the latest refresh token from the database if available and not expired."""
+        try:
+            with self.conn.cursor() as cur:
+                # Only load tokens that haven't expired (with 5 minute buffer)
+                cur.execute(
+                    """
+                    select refresh_token, access_token, token_expiry
+                    from dw.xero_tokens
+                    where tenant_id = %s
+                    and token_expiry > timezone('utc', now()) + interval '5 minutes'
+                    order by updated_at desc
+                    limit 1
+                    """,
+                    (self.creds.tenant_id,)
+                )
+                row = cur.fetchone()
+                if row:
+                    logger.info("Loaded stored tokens from database")
+                    self.creds.refresh_token = self._decrypt_token(row[0])
+                    self.access_token = self._decrypt_token(row[1])
+                    self.token_expiry = row[2]
+                else:
+                    logger.info("No valid stored tokens found, will use environment credentials")
+        except Exception as e:
+            logger.warning(f"Failed to load stored tokens: {e}. Will use environment credentials.")
 
     def _save_tokens(self, new_refresh_token: str, access_token: str, expires_in: int):
-        """Save the new tokens to the database."""
-        self.creds.refresh_token = new_refresh_token
-        self.access_token = access_token
-        self.token_expiry = pendulum.now("UTC").add(seconds=expires_in)
-
-        with self.conn.cursor() as cur:
-            cur.execute(
-                """
-                insert into dw.xero_tokens (tenant_id, refresh_token, access_token, token_expiry)
-                values (%s, %s, %s, %s)
-                on conflict (tenant_id) do update
-                set refresh_token = excluded.refresh_token,
-                    access_token = excluded.access_token,
-                    token_expiry = excluded.token_expiry,
-                    updated_at = timezone('utc', now())
-                """,
-                (self.creds.tenant_id, new_refresh_token, access_token, self.token_expiry),
-            )
-        self.conn.commit()
-
-    def _refresh_access_token(self) -> None:
-        response = requests.post(
-            TOKEN_URL,
-            data={
-                "grant_type": "refresh_token",
-                "refresh_token": self.creds.refresh_token,
-            },
-            auth=(self.creds.client_id, self.creds.client_secret),
-            timeout=30,
-        )
+        """Save the new tokens to the database with encryption."""
         try:
-            response.raise_for_status()
-        except requests.exceptions.HTTPError as e:
-            # If unauthorized, maybe the token is invalid. We can't do much but fail here.
-            print(f"Error refreshing token: {e}")
-            print(f"Response text: {response.text}")
+            self.creds.refresh_token = new_refresh_token
+            self.access_token = access_token
+            self.token_expiry = pendulum.now("UTC").add(seconds=expires_in)
+
+            encrypted_refresh = self._encrypt_token(new_refresh_token)
+            encrypted_access = self._encrypt_token(access_token)
+
+            with self.conn.cursor() as cur:
+                cur.execute(
+                    """
+                    insert into dw.xero_tokens (tenant_id, refresh_token, access_token, token_expiry)
+                    values (%s, %s, %s, %s)
+                    on conflict (tenant_id) do update
+                    set refresh_token = excluded.refresh_token,
+                        access_token = excluded.access_token,
+                        token_expiry = excluded.token_expiry,
+                        updated_at = timezone('utc', now())
+                    """,
+                    (self.creds.tenant_id, encrypted_refresh, encrypted_access, self.token_expiry),
+                )
+            self.conn.commit()
+            logger.info("Saved encrypted tokens to database")
+        except Exception as e:
+            logger.error(f"Failed to save tokens: {e}")
+            self.conn.rollback()
             raise
 
-        payload = response.json()
-        self._save_tokens(
-            payload["refresh_token"],
-            payload["access_token"],
-            int(payload["expires_in"])
-        )
+    def _refresh_access_token(self) -> None:
+        """Refresh the access token and save new credentials."""
+        try:
+            logger.info("Refreshing Xero access token")
+            response = requests.post(
+                TOKEN_URL,
+                data={
+                    "grant_type": "refresh_token",
+                    "refresh_token": self.creds.refresh_token,
+                },
+                auth=(self.creds.client_id, self.creds.client_secret),
+                timeout=30,
+            )
+            response.raise_for_status()
+
+            payload = response.json()
+            self._save_tokens(
+                payload["refresh_token"],
+                payload["access_token"],
+                int(payload["expires_in"])
+            )
+            logger.info("Successfully refreshed and saved access token")
+
+        except requests.exceptions.HTTPError as e:
+            logger.error(f"HTTP error refreshing token: {e}")
+            logger.error(f"Response status: {response.status_code}")
+            logger.error(f"Response text: {response.text}")
+
+            # Provide actionable error messages
+            if response.status_code == 401:
+                logger.error("Token refresh failed with 401 Unauthorized. The refresh token may have expired.")
+                logger.error("Action required: Generate a new refresh token via Xero OAuth flow and update XERO_REFRESH_TOKEN secret.")
+            elif response.status_code == 400:
+                logger.error("Token refresh failed with 400 Bad Request. Check client credentials.")
+
+            raise RuntimeError(f"Failed to refresh Xero token: {e}") from e
+
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Network error refreshing token: {e}")
+            raise RuntimeError(f"Network error during token refresh: {e}") from e
+
+        except Exception as e:
+            logger.error(f"Unexpected error refreshing token: {e}")
+            raise
 
     def _auth_header(self) -> dict:
         if not self.access_token or (self.token_expiry and pendulum.now("UTC") >= self.token_expiry):
@@ -320,7 +402,12 @@ def update_sync_state(conn, invoice_date: date | None):
 
 
 def main():
+    """Main entry point for Xero sync process."""
     load_dotenv()
+
+    logger.info("Starting Xero sync process")
+
+    # Validate environment variables
     conn_str = os.getenv("SUPABASE_CONNECTION_STRING")
     creds = XeroCredentials(
         client_id=os.getenv("XERO_CLIENT_ID", ""),
@@ -328,39 +415,109 @@ def main():
         refresh_token=os.getenv("XERO_REFRESH_TOKEN", ""),
         tenant_id=os.getenv("XERO_TENANT_ID", ""),
     )
+
     if not conn_str:
+        logger.error("SUPABASE_CONNECTION_STRING environment variable is not set")
         raise RuntimeError("SUPABASE_CONNECTION_STRING must be configured")
+
     if not all([creds.client_id, creds.client_secret, creds.refresh_token, creds.tenant_id]):
+        logger.error("Xero API credentials are incomplete")
         raise RuntimeError("Xero API credentials are not fully configured")
 
-    conn = connect(conn_str, autocommit=False)
+    conn = None
+    try:
+        # Connect to database
+        conn = connect(conn_str, autocommit=False)
+        logger.info("Connected to database")
 
-    # Pass conn to XeroClient so it can read/write tokens
-    client = XeroClient(creds, conn)
+        # Initialize Xero client (will load tokens from DB if available)
+        client = XeroClient(creds, conn)
 
-    modified_since = get_last_sync(conn)
-    invoices = client.fetch_invoices(modified_since)
-    invoice_df, lines_df = extract_dataframes(invoices)
-    lines_df = map_product_references(conn, lines_df)
+        # Get last sync timestamp
+        modified_since = get_last_sync(conn)
+        if modified_since:
+            logger.info(f"Fetching invoices modified since {modified_since}")
+        else:
+            logger.info("Fetching all invoices (first sync)")
 
-    processed = 0
-    processed += upsert_dataframe(conn, "dw.fct_invoice", invoice_df, ("invoice_number", "invoice_date"))
-    processed += upsert_dataframe(conn, "dw.fct_sales_line", lines_df, ("invoice_number", "product_id", "item_name", "load_source"))
+        # Fetch invoices from Xero
+        invoices = client.fetch_invoices(modified_since)
+        logger.info(f"Retrieved {len(invoices)} invoices from Xero")
 
-    last_invoice_date = None
-    if not invoice_df.empty and "invoice_date" in invoice_df.columns:
-        date_series = invoice_df["invoice_date"].dropna()
-        if not date_series.empty:
-            last_invoice_date = date_series.max()
-    update_sync_state(conn, last_invoice_date)
+        if not invoices:
+            logger.info("No new invoices to process")
+            # Log successful run even if no data
+            with conn.cursor() as cur:
+                cur.execute(
+                    "insert into dw.etl_run_log(pipeline_name, status, processed_rows) values (%s, %s, %s)",
+                    ("xero_sync", "success", 0),
+                )
+            conn.commit()
+            return
 
-    with conn.cursor() as cur:
-        cur.execute(
-            "insert into dw.etl_run_log(pipeline_name, status, processed_rows) values (%s, %s, %s)",
-            ("xero_sync", "success", processed),
-        )
-    conn.commit()
-    conn.close()
+        # Extract and transform data
+        invoice_df, lines_df = extract_dataframes(invoices)
+        logger.info(f"Extracted {len(invoice_df)} invoices and {len(lines_df)} line items")
+
+        # Map product references
+        lines_df = map_product_references(conn, lines_df)
+
+        # Begin transaction for data upsert
+        try:
+            # Upsert data
+            processed = 0
+            invoice_count = upsert_dataframe(conn, "dw.fct_invoice", invoice_df, ("invoice_number", "invoice_date"))
+            processed += invoice_count
+            logger.info(f"Upserted {invoice_count} invoices")
+
+            lines_count = upsert_dataframe(conn, "dw.fct_sales_line", lines_df, ("invoice_number", "product_id", "item_name", "load_source"))
+            processed += lines_count
+            logger.info(f"Upserted {lines_count} sales lines")
+
+            # Update sync state
+            last_invoice_date = None
+            if not invoice_df.empty and "invoice_date" in invoice_df.columns:
+                date_series = invoice_df["invoice_date"].dropna()
+                if not date_series.empty:
+                    last_invoice_date = date_series.max()
+                    logger.info(f"Last invoice date: {last_invoice_date}")
+
+            update_sync_state(conn, last_invoice_date)
+
+            # Log successful run
+            with conn.cursor() as cur:
+                cur.execute(
+                    "insert into dw.etl_run_log(pipeline_name, status, processed_rows, finished_at) values (%s, %s, %s, timezone('utc', now()))",
+                    ("xero_sync", "success", processed),
+                )
+            conn.commit()
+            logger.info(f"Sync completed successfully. Processed {processed} total rows.")
+
+        except Exception as e:
+            logger.error(f"Error during data processing: {e}")
+            conn.rollback()
+
+            # Log failed run
+            try:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "insert into dw.etl_run_log(pipeline_name, status, processed_rows, error_message, finished_at) values (%s, %s, %s, %s, timezone('utc', now()))",
+                        ("xero_sync", "failed", 0, str(e)),
+                    )
+                conn.commit()
+            except Exception as log_error:
+                logger.error(f"Failed to log error: {log_error}")
+
+            raise
+
+    except Exception as e:
+        logger.error(f"Fatal error in Xero sync: {e}", exc_info=True)
+        raise
+
+    finally:
+        if conn:
+            conn.close()
+            logger.info("Database connection closed")
 
 
 if __name__ == "__main__":

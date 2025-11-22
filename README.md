@@ -17,7 +17,7 @@ This repository delivers the Supabase-backed warehouse, ingestion code, and anal
 2. **Configure environment**
    - Copy `.env.example` to `.env`
    - Populate `SUPABASE_CONNECTION_STRING`
-   - Add Xero OAuth2 credentials (`XERO_CLIENT_ID`, `XERO_CLIENT_SECRET`, `XERO_REFRESH_TOKEN`, `XERO_TENANT_ID`) for incremental syncs
+   - For Xero automation, see **[Xero Setup Guide](docs/XERO_SETUP.md)** for detailed OAuth2 configuration
 3. **Provision database objects**
    ```bash
    psql "$SUPABASE_CONNECTION_STRING" -f supabase/schema.sql
@@ -28,11 +28,10 @@ This repository delivers the Supabase-backed warehouse, ingestion code, and anal
    ```bash
    python -m src.ingestion.load_historical
    ```
-5. **Run Xero incremental sync (on demand or via scheduler)**
-   ```bash
-   python -m src.ingestion.sync_xero
-   ```
-   - Schedule via cron, GitHub Actions, or a workflow orchestrator (Prefect/Airflow) for daily execution.
+5. **Set up automated Xero sync**
+   - Follow the **[Xero Setup Guide](docs/XERO_SETUP.md)** to configure GitHub Actions automation
+   - Includes encrypted token storage, automatic token rotation, retry logic, and failure notifications
+   - Manual sync: `python -m src.ingestion.sync_xero`
 
 
 ## Analytics Web App
