@@ -35,7 +35,6 @@ jobs:
           SUPABASE_CONNECTION_STRING: ${{ secrets.SUPABASE_CONNECTION_STRING }}
           XERO_CLIENT_ID: ${{ secrets.XERO_CLIENT_ID }}
           XERO_CLIENT_SECRET: ${{ secrets.XERO_CLIENT_SECRET }}
-          XERO_REFRESH_TOKEN: ${{ secrets.XERO_REFRESH_TOKEN }}
           XERO_TENANT_ID: ${{ secrets.XERO_TENANT_ID }}
           XERO_ENCRYPTION_KEY: ${{ secrets.XERO_ENCRYPTION_KEY }}
 

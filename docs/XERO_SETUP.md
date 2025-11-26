@@ -4,80 +4,64 @@ This guide explains how to set up the automated Xero data synchronization for th
 
 ## Overview
 
-The Xero integration automatically syncs invoice and sales data from Xero to your Supabase database on a daily basis. It includes:
+The Xero integration automatically syncs invoice and sales data from Xero to your Supabase database on a daily basis. It uses **OAuth2 Client Credentials** (machine-to-machine authentication) which requires only:
+
+- **Client ID** and **Client Secret** (no refresh token needed!)
+- **Tenant ID** for your Xero organization
+
+### Features
 
 - **Token encryption** for secure credential storage
-- **Automatic token rotation** to maintain continuous access
+- **Automatic token management** - tokens are requested and cached automatically
 - **Retry logic** for transient failures
 - **Failure notifications** via GitHub Issues
 - **Comprehensive logging** for troubleshooting
 
 ## Prerequisites
 
-1. **Xero Account** with API access
+1. **Xero Account** with API access (machine-to-machine / custom connection)
 2. **GitHub Repository** with Actions enabled
 3. **Supabase Database** (PostgreSQL)
 4. Admin access to configure GitHub Secrets
 
 ## Initial Setup
 
-### Step 1: Create a Xero OAuth Application
+### Step 1: Create a Xero Machine-to-Machine App
 
 1. Log in to [Xero Developer Portal](https://developer.xero.com/app/manage)
 2. Click **"New app"**
-3. Fill in application details:
+3. Select **"Custom connection"** (machine-to-machine)
+4. Fill in application details:
    - **App name**: Data Warehouse Sync
    - **Company or application URL**: Your organization's URL
-   - **Redirect URI**: `https://localhost` (for initial setup)
-4. Click **"Create app"**
-5. Note down the **Client ID** and **Client Secret**
+5. Click **"Create app"**
+6. Under **Configuration**, select the scopes you need:
+   - `accounting.transactions.read`
+   - `accounting.contacts.read`
+7. Click **"Connect"** to authorize the app for your organization
+8. Note down the **Client ID** and generate a **Client Secret**
 
-### Step 2: Generate Initial OAuth Tokens
+### Step 2: Get Your Tenant ID
 
-You need to perform an initial OAuth flow to get a refresh token:
+After connecting your app in Step 1, the Tenant ID is shown on the app configuration page.
 
-#### Option A: Using Xero OAuth 2.0 Playground
-
-1. Visit the [Xero OAuth 2.0 Playground](https://xero.github.io/xero-oauth2-starter/)
-2. Enter your Client ID
-3. Select scopes: `accounting.transactions.read`, `accounting.contacts.read`
-4. Click **"Get Tokens"**
-5. Authorize the application in Xero
-6. Copy the **Refresh Token** from the response
-
-#### Option B: Using Manual OAuth Flow
+Alternatively, you can get it via API:
 
 ```bash
-# 1. Generate authorization URL
-https://login.xero.com/identity/connect/authorize?response_type=code&client_id=YOUR_CLIENT_ID&redirect_uri=https://localhost&scope=offline_access%20accounting.transactions%20accounting.contacts&state=123
+# First get an access token
+ACCESS_TOKEN=$(curl -s -X POST https://identity.xero.com/connect/token \
+  -u "YOUR_CLIENT_ID:YOUR_CLIENT_SECRET" \
+  -d "grant_type=client_credentials" \
+  -d "scope=accounting.transactions.read" | jq -r '.access_token')
 
-# 2. Visit URL in browser and authorize
-# 3. Copy the 'code' from redirect URL
-
-# 4. Exchange code for tokens
-curl -X POST https://identity.xero.com/connect/token \
-  -H "Content-Type: application/x-www-form-urlencoded" \
-  -d "grant_type=authorization_code" \
-  -d "client_id=YOUR_CLIENT_ID" \
-  -d "client_secret=YOUR_CLIENT_SECRET" \
-  -d "code=YOUR_AUTH_CODE" \
-  -d "redirect_uri=https://localhost"
-
-# 5. Copy the 'refresh_token' from response
-```
-
-### Step 3: Get Xero Tenant ID
-
-```bash
-# Use the access token from Step 2
+# Then get connections to find tenant ID
 curl https://api.xero.com/connections \
-  -H "Authorization: Bearer YOUR_ACCESS_TOKEN" \
-  -H "Content-Type: application/json"
+  -H "Authorization: Bearer $ACCESS_TOKEN"
 
 # Copy the 'tenantId' from the response
 ```
 
-### Step 4: Configure GitHub Secrets
+### Step 3: Configure GitHub Secrets
 
 Navigate to your repository's **Settings** → **Secrets and variables** → **Actions** and add the following secrets:
 
@@ -86,13 +70,14 @@ Navigate to your repository's **Settings** → **Secrets and variables** → **A
 | `SUPABASE_CONNECTION_STRING` | PostgreSQL connection string | `postgresql://user:pass@host:5432/db` |
 | `XERO_CLIENT_ID` | From Step 1 | `ABC123...` |
 | `XERO_CLIENT_SECRET` | From Step 1 | `XYZ789...` |
-| `XERO_REFRESH_TOKEN` | From Step 2 | `abc123...` |
-| `XERO_TENANT_ID` | From Step 3 | `12345678-...` |
+| `XERO_TENANT_ID` | From Step 2 | `12345678-...` |
 | `XERO_ENCRYPTION_KEY` | Strong random string (32+ chars) | Use: `openssl rand -base64 32` |
+
+**Note**: No `XERO_REFRESH_TOKEN` is needed! The client credentials grant automatically handles token management.
 
 **Security Note**: The `XERO_ENCRYPTION_KEY` is used to encrypt tokens in the database. Store it securely and never commit it to version control.
 
-### Step 5: Deploy Database Schema
+### Step 4: Deploy Database Schema
 
 Run the schema update to create the encrypted token storage table:
 
@@ -106,7 +91,7 @@ This creates:
 - Required indexes and constraints
 - pgcrypto extension for encryption
 
-### Step 6: Test the Workflow
+### Step 5: Test the Workflow
 
 Manually trigger the workflow to test the setup:
 
@@ -124,25 +109,30 @@ Manually trigger the workflow to test the setup:
 
 ### Token Management Flow
 
+The client credentials flow is simpler - no refresh tokens to manage!
+
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│ 1. First Run (using environment XERO_REFRESH_TOKEN)        │
-│    ↓                                                        │
-│ 2. Refresh access token with Xero API                      │
-│    ↓                                                        │
-│ 3. Receive new access_token + refresh_token                │
-│    ↓                                                        │
-│ 4. Encrypt tokens with pgcrypto                            │
-│    ↓                                                        │
-│ 5. Save encrypted tokens to dw.xero_tokens                 │
+│ Every Run:                                                  │
 │                                                             │
-│ Subsequent Runs:                                            │
-│ 1. Load encrypted tokens from database                     │
-│ 2. Decrypt using XERO_ENCRYPTION_KEY                       │
-│ 3. Use if not expired (5 min buffer)                       │
-│ 4. Refresh and save new tokens                             │
+│ 1. Check database for cached access token                  │
+│    ↓                                                        │
+│ 2. If valid token exists (not expired + 5 min buffer):     │
+│    → Decrypt and use cached token                          │
+│    ↓                                                        │
+│ 3. If no valid token:                                      │
+│    → Request new access token using client credentials     │
+│    → Encrypt and save to dw.xero_tokens                    │
+│    ↓                                                        │
+│ 4. Use access token to call Xero API                       │
 └─────────────────────────────────────────────────────────────┘
 ```
+
+**Benefits of Client Credentials Flow:**
+- No refresh tokens to manage or expire
+- Simpler setup - just client ID, secret, and tenant ID
+- Automatic token renewal when needed
+- More reliable for automated processes
 
 ### Data Sync Process
 
@@ -172,14 +162,15 @@ If all retry attempts fail, the workflow:
 
 ## Troubleshooting
 
-### Token Refresh Failed (401 Unauthorized)
+### Token Request Failed (401 Unauthorized)
 
-**Cause**: Refresh token has expired (typically after 60 days of inactivity).
+**Cause**: Client credentials are incorrect or the app is not properly connected.
 
 **Solution**:
-1. Generate a new refresh token (see Step 2)
-2. Update `XERO_REFRESH_TOKEN` secret in GitHub
-3. Re-run the workflow
+1. Verify `XERO_CLIENT_ID` and `XERO_CLIENT_SECRET` are correct
+2. Check that the app is connected to your Xero organization
+3. Regenerate the client secret in Xero Developer Portal if needed
+4. Update secrets in GitHub and re-run the workflow
 
 ### Encryption Key Mismatch
 

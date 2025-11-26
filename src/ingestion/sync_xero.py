@@ -30,11 +30,17 @@ TOKEN_URL = "https://identity.xero.com/connect/token"
 class XeroCredentials:
     client_id: str
     client_secret: str
-    refresh_token: str
     tenant_id: str
+    scopes: str = "accounting.transactions.read accounting.contacts.read"
 
 
 class XeroClient:
+    """Xero API client using OAuth2 client credentials grant (machine-to-machine).
+
+    This implementation uses client_id and client_secret only - no refresh token needed.
+    Access tokens are cached in the database and automatically refreshed when expired.
+    """
+
     def __init__(self, creds: XeroCredentials, conn):
         self.creds = creds
         self.conn = conn
@@ -52,7 +58,6 @@ class XeroClient:
 
     def _encrypt_token(self, token: str) -> bytes:
         """Encrypt a token using pgcrypto."""
-        # We'll use a SQL function for encryption to ensure consistency
         with self.conn.cursor() as cur:
             cur.execute(
                 "select pgp_sym_encrypt(%s, %s)",
@@ -72,13 +77,13 @@ class XeroClient:
             return result[0].decode('utf-8') if result else ''
 
     def _load_stored_tokens(self):
-        """Load the latest refresh token from the database if available and not expired."""
+        """Load cached access token from database if still valid."""
         try:
             with self.conn.cursor() as cur:
                 # Only load tokens that haven't expired (with 5 minute buffer)
                 cur.execute(
                     """
-                    select refresh_token, access_token, token_expiry
+                    select access_token, token_expiry
                     from dw.xero_tokens
                     where tenant_id = %s
                     and token_expiry > timezone('utc', now()) + interval '5 minutes'
@@ -89,24 +94,23 @@ class XeroClient:
                 )
                 row = cur.fetchone()
                 if row:
-                    logger.info("Loaded stored tokens from database")
-                    self.creds.refresh_token = self._decrypt_token(row[0])
-                    self.access_token = self._decrypt_token(row[1])
-                    self.token_expiry = row[2]
+                    logger.info("Loaded cached access token from database")
+                    self.access_token = self._decrypt_token(row[0])
+                    self.token_expiry = row[1]
                 else:
-                    logger.info("No valid stored tokens found, will use environment credentials")
+                    logger.info("No valid cached token found, will request new access token")
         except Exception as e:
-            logger.warning(f"Failed to load stored tokens: {e}. Will use environment credentials.")
+            logger.warning(f"Failed to load cached tokens: {e}. Will request new access token.")
 
-    def _save_tokens(self, new_refresh_token: str, access_token: str, expires_in: int):
-        """Save the new tokens to the database with encryption."""
+    def _save_access_token(self, access_token: str, expires_in: int):
+        """Save the access token to database with encryption."""
         try:
-            self.creds.refresh_token = new_refresh_token
             self.access_token = access_token
             self.token_expiry = pendulum.now("UTC").add(seconds=expires_in)
 
-            encrypted_refresh = self._encrypt_token(new_refresh_token)
             encrypted_access = self._encrypt_token(access_token)
+            # For client credentials flow, we store a placeholder for refresh_token
+            encrypted_placeholder = self._encrypt_token("client_credentials_grant")
 
             with self.conn.cursor() as cur:
                 cur.execute(
@@ -119,24 +123,24 @@ class XeroClient:
                         token_expiry = excluded.token_expiry,
                         updated_at = timezone('utc', now())
                     """,
-                    (self.creds.tenant_id, encrypted_refresh, encrypted_access, self.token_expiry),
+                    (self.creds.tenant_id, encrypted_placeholder, encrypted_access, self.token_expiry),
                 )
             self.conn.commit()
-            logger.info("Saved encrypted tokens to database")
+            logger.info("Saved encrypted access token to database")
         except Exception as e:
-            logger.error(f"Failed to save tokens: {e}")
+            logger.error(f"Failed to save access token: {e}")
             self.conn.rollback()
             raise
 
-    def _refresh_access_token(self) -> None:
-        """Refresh the access token and save new credentials."""
+    def _request_access_token(self) -> None:
+        """Request a new access token using client credentials grant."""
         try:
-            logger.info("Refreshing Xero access token")
+            logger.info("Requesting new Xero access token via client credentials")
             response = requests.post(
                 TOKEN_URL,
                 data={
-                    "grant_type": "refresh_token",
-                    "refresh_token": self.creds.refresh_token,
+                    "grant_type": "client_credentials",
+                    "scope": self.creds.scopes,
                 },
                 auth=(self.creds.client_id, self.creds.client_secret),
                 timeout=30,
@@ -144,38 +148,38 @@ class XeroClient:
             response.raise_for_status()
 
             payload = response.json()
-            self._save_tokens(
-                payload["refresh_token"],
+            self._save_access_token(
                 payload["access_token"],
                 int(payload["expires_in"])
             )
-            logger.info("Successfully refreshed and saved access token")
+            logger.info("Successfully obtained and saved access token")
 
         except requests.exceptions.HTTPError as e:
-            logger.error(f"HTTP error refreshing token: {e}")
+            logger.error(f"HTTP error requesting token: {e}")
             logger.error(f"Response status: {response.status_code}")
             logger.error(f"Response text: {response.text}")
 
-            # Provide actionable error messages
             if response.status_code == 401:
-                logger.error("Token refresh failed with 401 Unauthorized. The refresh token may have expired.")
-                logger.error("Action required: Generate a new refresh token via Xero OAuth flow and update XERO_REFRESH_TOKEN secret.")
+                logger.error("Token request failed with 401 Unauthorized.")
+                logger.error("Action required: Check XERO_CLIENT_ID and XERO_CLIENT_SECRET are correct.")
             elif response.status_code == 400:
-                logger.error("Token refresh failed with 400 Bad Request. Check client credentials.")
+                logger.error("Token request failed with 400 Bad Request.")
+                logger.error("Action required: Verify scopes are valid and app has required permissions.")
 
-            raise RuntimeError(f"Failed to refresh Xero token: {e}") from e
+            raise RuntimeError(f"Failed to obtain Xero access token: {e}") from e
 
         except requests.exceptions.RequestException as e:
-            logger.error(f"Network error refreshing token: {e}")
-            raise RuntimeError(f"Network error during token refresh: {e}") from e
+            logger.error(f"Network error requesting token: {e}")
+            raise RuntimeError(f"Network error during token request: {e}") from e
 
         except Exception as e:
-            logger.error(f"Unexpected error refreshing token: {e}")
+            logger.error(f"Unexpected error requesting token: {e}")
             raise
 
     def _auth_header(self) -> dict:
+        """Get authorization headers, requesting new token if needed."""
         if not self.access_token or (self.token_expiry and pendulum.now("UTC") >= self.token_expiry):
-            self._refresh_access_token()
+            self._request_access_token()
         assert self.access_token  # for type checkers
         return {
             "Authorization": f"Bearer {self.access_token}",
@@ -412,16 +416,17 @@ def main():
     creds = XeroCredentials(
         client_id=os.getenv("XERO_CLIENT_ID", ""),
         client_secret=os.getenv("XERO_CLIENT_SECRET", ""),
-        refresh_token=os.getenv("XERO_REFRESH_TOKEN", ""),
         tenant_id=os.getenv("XERO_TENANT_ID", ""),
+        scopes=os.getenv("XERO_SCOPES", "accounting.transactions.read accounting.contacts.read"),
     )
 
     if not conn_str:
         logger.error("SUPABASE_CONNECTION_STRING environment variable is not set")
         raise RuntimeError("SUPABASE_CONNECTION_STRING must be configured")
 
-    if not all([creds.client_id, creds.client_secret, creds.refresh_token, creds.tenant_id]):
+    if not all([creds.client_id, creds.client_secret, creds.tenant_id]):
         logger.error("Xero API credentials are incomplete")
+        logger.error("Required: XERO_CLIENT_ID, XERO_CLIENT_SECRET, XERO_TENANT_ID")
         raise RuntimeError("Xero API credentials are not fully configured")
 
     conn = None
