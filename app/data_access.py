@@ -405,6 +405,20 @@ def upsert_product(payload: Dict[str, Any]) -> None:
             conn.commit()
 
 
+def fetch_inventory() -> pd.DataFrame:
+    query = """
+        select
+            p.product_code,
+            p.item_name,
+            i.stock_on_hand,
+            i.updated_at
+        from dw.fct_inventory i
+        join dw.dim_product p on i.product_id = p.product_id
+        order by p.item_name
+    """
+    return _read_dataframe(query)
+
+
 def next_customer_id() -> int:
     query = "select coalesce(max(customer_id::bigint), 0) + 1 as next_id from dw.dim_customer"
     with get_connection() as conn:
