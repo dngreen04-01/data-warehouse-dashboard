@@ -414,6 +414,26 @@ def next_customer_id() -> int:
             return int(row["next_id"])
 
 
+def fetch_statement_data(parent_customer: str) -> pd.DataFrame:
+    """Fetch the data required to generate a statement for a parent customer."""
+    query = """
+        select
+            customer_name,
+            bill_to,
+            invoice_number,
+            invoice_date,
+            due_date,
+            outstanding_amount,
+            aging_bucket
+        from mart.vw_statement_details
+        where
+            merchant_group = %s
+        order by
+            invoice_date
+    """
+    return _read_dataframe(query, [parent_customer])
+
+
 def next_product_id() -> int:
     query = "select coalesce(max(product_id), 0) + 1 as next_id from dw.dim_product"
     with get_connection() as conn:

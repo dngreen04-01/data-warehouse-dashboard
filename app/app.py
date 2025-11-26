@@ -18,11 +18,13 @@ from data_access import (
     fetch_transactions,
     fetch_year_over_year_breakdown,
     fetch_cluster_members,
+    fetch_statement_data,
     next_customer_id,
     next_product_id,
     upsert_customer,
     upsert_product,
 )
+from statement_generator import generate_statement_pdf
 
 load_dotenv()
 
@@ -350,7 +352,7 @@ else:
 st.markdown("---")
 st.header("Data Maintenance")
 
-maintenance_tabs = st.tabs(["Customers", "Products"])
+maintenance_tabs = st.tabs(["Customers", "Products", "Statements"])
 
 with maintenance_tabs[0]:
     st.subheader("Add or Update Customer")
@@ -449,6 +451,30 @@ with maintenance_tabs[1]:
             upsert_product(payload)
             st.success(f"Product '{item_name}' saved.")
             st.cache_data.clear()
+
+
+with maintenance_tabs[2]:
+    st.subheader("Generate Customer Statements")
+    parent_customers = reference_data["merchant_groups"]["merchant_group"].tolist()
+    selected_parent = st.selectbox("Select parent customer", parent_customers)
+
+    if st.button("Generate Statement"):
+        if selected_parent:
+            statement_data = fetch_statement_data(selected_parent)
+            if not statement_data.empty:
+                st.dataframe(statement_data, use_container_width=True, hide_index=True)
+
+                pdf_bytes = generate_statement_pdf(statement_data)
+                st.download_button(
+                    label="Download as PDF",
+                    data=pdf_bytes,
+                    file_name=f"statement_{selected_parent}.pdf",
+                    mime="application/pdf",
+                )
+            else:
+                st.info("No outstanding invoices for this customer.")
+        else:
+            st.warning("Please select a parent customer.")
 
 
 run_command = "streamlit run app/app.py"
