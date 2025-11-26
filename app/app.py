@@ -12,6 +12,7 @@ from data_access import (
     DateFilters,
     fetch_breakdown,
     fetch_comparison_metrics,
+    fetch_inventory,
     fetch_reference_data,
     fetch_sales_timeseries,
     fetch_top_performers,
@@ -350,7 +351,7 @@ else:
 st.markdown("---")
 st.header("Data Maintenance")
 
-maintenance_tabs = st.tabs(["Customers", "Products"])
+maintenance_tabs = st.tabs(["Customers", "Products", "Inventory"])
 
 with maintenance_tabs[0]:
     st.subheader("Add or Update Customer")
@@ -449,6 +450,11 @@ with maintenance_tabs[1]:
             upsert_product(payload)
             st.success(f"Product '{item_name}' saved.")
             st.cache_data.clear()
+
+with maintenance_tabs[2]:
+    st.subheader("Current Inventory")
+    inventory_df = fetch_inventory()
+    st.dataframe(inventory_df, use_container_width=True, hide_index=True)
 
 
 run_command = "streamlit run app/app.py"
