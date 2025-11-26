@@ -26,6 +26,32 @@ API_BASE = "https://api.xero.com/api.xro/2.0"
 TOKEN_URL = "https://identity.xero.com/connect/token"
 
 
+def parse_xero_date(date_str: str | None) -> date | None:
+    """Parse Xero date format which can be ISO or Microsoft JSON format.
+
+    Xero returns dates in formats like:
+    - /Date(1355184000000+0000)/ (Microsoft JSON format - milliseconds since epoch)
+    - 2023-01-15T00:00:00 (ISO format)
+    """
+    if not date_str:
+        return None
+
+    # Handle Microsoft JSON date format: /Date(1355184000000+0000)/
+    if date_str.startswith('/Date('):
+        import re
+        match = re.search(r'/Date\((\d+)([+-]\d+)?\)/', date_str)
+        if match:
+            timestamp_ms = int(match.group(1))
+            return pendulum.from_timestamp(timestamp_ms / 1000, tz='UTC').date()
+        return None
+
+    # Handle ISO format
+    try:
+        return pendulum.parse(date_str, strict=False).date()
+    except Exception:
+        return None
+
+
 @dataclass
 class XeroCredentials:
     client_id: str
@@ -74,7 +100,11 @@ class XeroClient:
                 (encrypted_token, self._get_encryption_key())
             )
             result = cur.fetchone()
-            return result[0].decode('utf-8') if result else ''
+            if result and result[0]:
+                # Handle both bytes and str return types
+                token = result[0]
+                return token.decode('utf-8') if isinstance(token, bytes) else token
+            return ''
 
     def _load_stored_tokens(self):
         """Load cached access token from database if still valid."""
@@ -246,6 +276,45 @@ def upsert_dataframe(conn, table_identifier: str, frame: pd.DataFrame, conflict_
 
 
 
+def ensure_customers(conn, invoice_df: pd.DataFrame, lines_df: pd.DataFrame) -> None:
+    """Ensure all customers from invoices exist in dim_customer."""
+    if invoice_df.empty:
+        return
+
+    # Get unique customers from invoices
+    customers = invoice_df[['customer_id', 'customer_name']].drop_duplicates()
+    customers = customers[customers['customer_id'].notna()]
+
+    if customers.empty:
+        return
+
+    # Check which customers already exist
+    customer_ids = customers['customer_id'].tolist()
+    with conn.cursor() as cur:
+        # Use ANY() for array comparison in psycopg3
+        cur.execute("SELECT customer_id FROM dw.dim_customer WHERE customer_id = ANY(%s)", (customer_ids,))
+        existing = {row[0] for row in cur.fetchall()}
+
+    # Insert missing customers
+    missing = customers[~customers['customer_id'].isin(existing)]
+    if missing.empty:
+        return
+
+    logger.info(f"Auto-creating {len(missing)} customers from Xero")
+
+    with conn.cursor() as cur:
+        for _, row in missing.iterrows():
+            cur.execute(
+                """
+                INSERT INTO dw.dim_customer (customer_id, customer_name)
+                VALUES (%s, %s)
+                ON CONFLICT (customer_id) DO NOTHING
+                """,
+                (row['customer_id'], row['customer_name'] or 'Unknown Customer')
+            )
+    conn.commit()
+
+
 def map_product_references(conn, lines_df: pd.DataFrame) -> pd.DataFrame:
     if lines_df.empty:
         return lines_df
@@ -339,11 +408,12 @@ def extract_dataframes(invoices: List[dict]) -> Tuple[pd.DataFrame, pd.DataFrame
     invoice_rows = []
     line_rows = []
     for inv in invoices:
+        invoice_date = parse_xero_date(inv.get("Date"))
         invoice_rows.append(
             {
                 "invoice_number": inv.get("InvoiceNumber"),
                 "document_type": inv.get("Type"),
-                "invoice_date": pendulum.parse(inv.get("Date"), strict=False).date() if inv.get("Date") else None,
+                "invoice_date": invoice_date,
                 "lines": len(inv.get("LineItems", [])),
                 "net_amount": inv.get("Total"),
                 "customer_id": inv.get("Contact", {}).get("ContactID"),
@@ -354,7 +424,7 @@ def extract_dataframes(invoices: List[dict]) -> Tuple[pd.DataFrame, pd.DataFrame
             line_rows.append(
                 {
                     "invoice_number": inv.get("InvoiceNumber"),
-                    "invoice_date": pendulum.parse(inv.get("Date"), strict=False).date() if inv.get("Date") else None,
+                    "invoice_date": invoice_date,
                     "document_type": inv.get("Type"),
                     "customer_id": inv.get("Contact", {}).get("ContactID"),
                     "customer_name": inv.get("Contact", {}).get("Name"),
@@ -375,10 +445,6 @@ def extract_dataframes(invoices: List[dict]) -> Tuple[pd.DataFrame, pd.DataFrame
         for col in ("net_amount", "qty", "unit_price", "line_amount"):
             if col in frame.columns:
                 frame[col] = pd.to_numeric(frame[col], errors="coerce").fillna(0)
-        if "invoice_date" in frame.columns:
-            frame["invoice_date"] = frame["invoice_date"].apply(
-                lambda x: pendulum.parse(str(x), strict=False).date() if pd.notna(x) else None
-            )
     return invoice_df, line_df
 
 
@@ -407,7 +473,7 @@ def update_sync_state(conn, invoice_date: date | None):
 
 def main():
     """Main entry point for Xero sync process."""
-    load_dotenv()
+    load_dotenv(override=True)
 
     logger.info("Starting Xero sync process")
 
@@ -463,6 +529,9 @@ def main():
         # Extract and transform data
         invoice_df, lines_df = extract_dataframes(invoices)
         logger.info(f"Extracted {len(invoice_df)} invoices and {len(lines_df)} line items")
+
+        # Ensure customers exist before inserting invoices
+        ensure_customers(conn, invoice_df, lines_df)
 
         # Map product references
         lines_df = map_product_references(conn, lines_df)
