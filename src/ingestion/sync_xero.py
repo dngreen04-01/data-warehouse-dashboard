@@ -218,25 +218,38 @@ class XeroClient:
         }
 
     def fetch_invoices(self, modified_since: pendulum.DateTime | None = None) -> List[dict]:
+        """Fetch all invoices from Xero, paginating through all results.
+
+        Xero returns 100 invoices per page. We keep fetching until we get
+        fewer than 100 invoices, indicating we've reached the last page.
+        """
         headers = self._auth_header()
         params = {"page": 1}
         if modified_since:
             headers["If-Modified-Since"] = modified_since.in_timezone('UTC').strftime('%a, %d %b %Y %H:%M:%S GMT')
 
         invoices: List[dict] = []
+        page_size = 100  # Xero's default page size
+
         while True:
+            logger.info(f"Fetching page {params['page']}...")
             response = requests.get(
                 f"{API_BASE}/Invoices",
                 headers=headers,
                 params=params,
-                timeout=30,
+                timeout=60,  # Increased timeout for large responses
             )
             response.raise_for_status()
             batch = response.json().get("Invoices", [])
             invoices.extend(batch)
-            if not response.json().get("HasMorePages"):
+            logger.info(f"Page {params['page']}: retrieved {len(batch)} invoices (total so far: {len(invoices)})")
+
+            # Xero returns up to 100 invoices per page
+            # If we get fewer than 100, we've reached the last page
+            if len(batch) < page_size:
                 break
             params["page"] += 1
+
         return invoices
 
 
@@ -277,41 +290,79 @@ def upsert_dataframe(conn, table_identifier: str, frame: pd.DataFrame, conflict_
 
 
 def ensure_customers(conn, invoice_df: pd.DataFrame, lines_df: pd.DataFrame) -> None:
-    """Ensure all customers from invoices exist in dim_customer."""
+    """Ensure all customers from invoices exist in dim_customer.
+
+    Also determines customer_type based on document_type:
+    - ACCPAY (bills) -> supplier
+    - ACCREC/Tax Invoice (sales invoices) -> customer
+    - Both -> both
+    """
     if invoice_df.empty:
         return
 
-    # Get unique customers from invoices
-    customers = invoice_df[['customer_id', 'customer_name']].drop_duplicates()
+    # Get unique customers from invoices with their document types
+    customers = invoice_df[['customer_id', 'customer_name', 'document_type']].drop_duplicates()
     customers = customers[customers['customer_id'].notna()]
 
     if customers.empty:
         return
 
+    # Determine customer_type for each contact based on their invoice types
+    customer_types = {}
+    for customer_id in customers['customer_id'].unique():
+        doc_types = set(customers[customers['customer_id'] == customer_id]['document_type'].unique())
+        is_supplier = 'ACCPAY' in doc_types
+        is_customer = bool(doc_types - {'ACCPAY'})  # Any non-ACCPAY type means customer
+
+        if is_supplier and is_customer:
+            customer_types[customer_id] = 'both'
+        elif is_supplier:
+            customer_types[customer_id] = 'supplier'
+        else:
+            customer_types[customer_id] = 'customer'
+
     # Check which customers already exist
     customer_ids = customers['customer_id'].tolist()
     with conn.cursor() as cur:
         # Use ANY() for array comparison in psycopg3
-        cur.execute("SELECT customer_id FROM dw.dim_customer WHERE customer_id = ANY(%s)", (customer_ids,))
-        existing = {row[0] for row in cur.fetchall()}
+        cur.execute("SELECT customer_id, customer_type FROM dw.dim_customer WHERE customer_id = ANY(%s)", (customer_ids,))
+        existing = {row[0]: row[1] for row in cur.fetchall()}
+
+    # Get unique customer info for inserts/updates
+    unique_customers = customers.drop_duplicates(subset=['customer_id'])[['customer_id', 'customer_name']]
 
     # Insert missing customers
-    missing = customers[~customers['customer_id'].isin(existing)]
-    if missing.empty:
-        return
+    missing = unique_customers[~unique_customers['customer_id'].isin(existing.keys())]
+    if not missing.empty:
+        logger.info(f"Auto-creating {len(missing)} customers from Xero")
+        with conn.cursor() as cur:
+            for _, row in missing.iterrows():
+                cust_type = customer_types.get(row['customer_id'], 'customer')
+                cur.execute(
+                    """
+                    INSERT INTO dw.dim_customer (customer_id, customer_name, customer_type)
+                    VALUES (%s, %s, %s)
+                    ON CONFLICT (customer_id) DO NOTHING
+                    """,
+                    (row['customer_id'], row['customer_name'] or 'Unknown Customer', cust_type)
+                )
 
-    logger.info(f"Auto-creating {len(missing)} customers from Xero")
+    # Update existing customers if their type needs to change (e.g., customer becomes 'both')
+    for customer_id, new_type in customer_types.items():
+        if customer_id in existing:
+            old_type = existing[customer_id]
+            # Upgrade to 'both' if they were customer and now have bills, or supplier and now have invoices
+            if old_type != new_type and old_type != 'both':
+                if (old_type == 'customer' and new_type == 'supplier') or \
+                   (old_type == 'supplier' and new_type == 'customer'):
+                    # They now have both types
+                    with conn.cursor() as cur:
+                        cur.execute(
+                            "UPDATE dw.dim_customer SET customer_type = 'both' WHERE customer_id = %s",
+                            (customer_id,)
+                        )
+                        logger.info(f"Updated {customer_id} customer_type to 'both'")
 
-    with conn.cursor() as cur:
-        for _, row in missing.iterrows():
-            cur.execute(
-                """
-                INSERT INTO dw.dim_customer (customer_id, customer_name)
-                VALUES (%s, %s)
-                ON CONFLICT (customer_id) DO NOTHING
-                """,
-                (row['customer_id'], row['customer_name'] or 'Unknown Customer')
-            )
     conn.commit()
 
 
@@ -404,14 +455,30 @@ def ensure_products(conn, lines_df: pd.DataFrame, missing_mask: pd.Series, norma
 
     return lines_df
 
-def extract_dataframes(invoices: List[dict]) -> Tuple[pd.DataFrame, pd.DataFrame]:
+def extract_dataframes(invoices: List[dict]) -> Tuple[pd.DataFrame, pd.DataFrame, List[str]]:
+    """Extract invoice and line dataframes, plus list of voided/deleted invoice numbers.
+
+    Returns:
+        Tuple of (invoice_df, lines_df, voided_invoice_numbers)
+    """
     invoice_rows = []
     line_rows = []
+    voided_invoices = []
+
     for inv in invoices:
+        invoice_status = inv.get("Status", "").upper()
+        invoice_number = inv.get("InvoiceNumber")
+
+        # Track voided/deleted invoices for removal
+        if invoice_status in ("VOIDED", "DELETED"):
+            if invoice_number:
+                voided_invoices.append(invoice_number)
+            continue  # Skip adding to dataframes
+
         invoice_date = parse_xero_date(inv.get("Date"))
         invoice_rows.append(
             {
-                "invoice_number": inv.get("InvoiceNumber"),
+                "invoice_number": invoice_number,
                 "document_type": inv.get("Type"),
                 "invoice_date": invoice_date,
                 "lines": len(inv.get("LineItems", [])),
@@ -445,7 +512,41 @@ def extract_dataframes(invoices: List[dict]) -> Tuple[pd.DataFrame, pd.DataFrame
         for col in ("net_amount", "qty", "unit_price", "line_amount"):
             if col in frame.columns:
                 frame[col] = pd.to_numeric(frame[col], errors="coerce").fillna(0)
-    return invoice_df, line_df
+    return invoice_df, line_df, voided_invoices
+
+
+def delete_voided_invoices(conn, invoice_numbers: List[str]) -> int:
+    """Delete voided/deleted invoices and their associated sales lines.
+
+    Args:
+        conn: Database connection
+        invoice_numbers: List of invoice numbers to delete
+
+    Returns:
+        Number of invoices deleted
+    """
+    if not invoice_numbers:
+        return 0
+
+    deleted_count = 0
+    with conn.cursor() as cur:
+        # Delete sales lines first (child records)
+        cur.execute(
+            "DELETE FROM dw.fct_sales_line WHERE invoice_number = ANY(%s)",
+            (invoice_numbers,)
+        )
+        lines_deleted = cur.rowcount
+        logger.info(f"Deleted {lines_deleted} sales lines for voided/deleted invoices")
+
+        # Delete invoices
+        cur.execute(
+            "DELETE FROM dw.fct_invoice WHERE invoice_number = ANY(%s)",
+            (invoice_numbers,)
+        )
+        deleted_count = cur.rowcount
+        logger.info(f"Deleted {deleted_count} voided/deleted invoices")
+
+    return deleted_count
 
 
 def get_last_sync(conn) -> pendulum.DateTime | None:
@@ -527,8 +628,10 @@ def main():
             return
 
         # Extract and transform data
-        invoice_df, lines_df = extract_dataframes(invoices)
+        invoice_df, lines_df, voided_invoices = extract_dataframes(invoices)
         logger.info(f"Extracted {len(invoice_df)} invoices and {len(lines_df)} line items")
+        if voided_invoices:
+            logger.info(f"Found {len(voided_invoices)} voided/deleted invoices to remove")
 
         # Ensure customers exist before inserting invoices
         ensure_customers(conn, invoice_df, lines_df)
@@ -538,6 +641,9 @@ def main():
 
         # Begin transaction for data upsert
         try:
+            # Delete voided/deleted invoices first
+            deleted_count = delete_voided_invoices(conn, voided_invoices)
+
             # Upsert data
             processed = 0
             invoice_count = upsert_dataframe(conn, "dw.fct_invoice", invoice_df, ("invoice_number", "invoice_date"))
@@ -565,7 +671,7 @@ def main():
                     ("xero_sync", "success", processed),
                 )
             conn.commit()
-            logger.info(f"Sync completed successfully. Processed {processed} total rows.")
+            logger.info(f"Sync completed successfully. Processed {processed} total rows, deleted {deleted_count} voided/deleted invoices.")
 
         except Exception as e:
             logger.error(f"Error during data processing: {e}")
@@ -594,5 +700,78 @@ def main():
             logger.info("Database connection closed")
 
 
+def cleanup_voided_invoices():
+    """One-time cleanup to remove all voided/deleted invoices from the database.
+
+    This fetches ALL invoices from Xero (ignoring modified_since) and removes
+    any that have VOIDED or DELETED status from the local database.
+    """
+    load_dotenv(override=True)
+
+    logger.info("Starting one-time cleanup of voided/deleted invoices")
+
+    conn_str = os.getenv("SUPABASE_CONNECTION_STRING")
+    creds = XeroCredentials(
+        client_id=os.getenv("XERO_CLIENT_ID", ""),
+        client_secret=os.getenv("XERO_CLIENT_SECRET", ""),
+        tenant_id=os.getenv("XERO_TENANT_ID", ""),
+        scopes=os.getenv("XERO_SCOPES", "accounting.transactions.read accounting.contacts.read"),
+    )
+
+    if not conn_str:
+        logger.error("SUPABASE_CONNECTION_STRING environment variable is not set")
+        raise RuntimeError("SUPABASE_CONNECTION_STRING must be configured")
+
+    if not all([creds.client_id, creds.client_secret, creds.tenant_id]):
+        logger.error("Xero API credentials are incomplete")
+        raise RuntimeError("Xero API credentials are not fully configured")
+
+    conn = None
+    try:
+        conn = connect(conn_str, autocommit=False)
+        logger.info("Connected to database")
+
+        client = XeroClient(creds, conn)
+
+        # Fetch invoices from September 2025 onwards
+        cleanup_since = pendulum.datetime(2025, 9, 1, tz='UTC')
+        logger.info(f"Fetching invoices from Xero since {cleanup_since.to_date_string()} for cleanup...")
+        invoices = client.fetch_invoices(modified_since=cleanup_since)
+        logger.info(f"Retrieved {len(invoices)} total invoices from Xero")
+
+        # Find voided/deleted invoices
+        voided_invoices = []
+        for inv in invoices:
+            invoice_status = inv.get("Status", "").upper()
+            invoice_number = inv.get("InvoiceNumber")
+            if invoice_status in ("VOIDED", "DELETED") and invoice_number:
+                voided_invoices.append(invoice_number)
+                logger.debug(f"Found {invoice_status} invoice: {invoice_number}")
+
+        logger.info(f"Found {len(voided_invoices)} voided/deleted invoices to remove")
+
+        if voided_invoices:
+            deleted_count = delete_voided_invoices(conn, voided_invoices)
+            conn.commit()
+            logger.info(f"Cleanup complete. Removed {deleted_count} voided/deleted invoices from database.")
+        else:
+            logger.info("No voided/deleted invoices found. Database is clean.")
+
+    except Exception as e:
+        logger.error(f"Error during cleanup: {e}", exc_info=True)
+        if conn:
+            conn.rollback()
+        raise
+
+    finally:
+        if conn:
+            conn.close()
+            logger.info("Database connection closed")
+
+
 if __name__ == "__main__":
-    main()
+    import sys
+    if len(sys.argv) > 1 and sys.argv[1] == "--cleanup":
+        cleanup_voided_invoices()
+    else:
+        main()
