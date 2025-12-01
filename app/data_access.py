@@ -415,9 +415,21 @@ def next_customer_id() -> int:
 
 
 def fetch_statement_data(parent_customer: str) -> pd.DataFrame:
-    """Fetch the data required to generate a statement for a parent customer."""
+    """Fetch the data required to generate a statement for a parent customer.
+
+    Args:
+        parent_customer: The merchant group name to fetch statement data for.
+
+    Returns:
+        DataFrame with statement details including merchant_group, customer_name,
+        bill_to, invoice details, and aging information.
+
+    Raises:
+        RuntimeError: If database connection fails.
+    """
     query = """
         select
+            merchant_group,
             customer_name,
             bill_to,
             invoice_number,
@@ -429,9 +441,13 @@ def fetch_statement_data(parent_customer: str) -> pd.DataFrame:
         where
             merchant_group = %s
         order by
+            customer_name,
             invoice_date
     """
-    return _read_dataframe(query, [parent_customer])
+    try:
+        return _read_dataframe(query, [parent_customer])
+    except Exception as e:
+        raise RuntimeError(f"Failed to fetch statement data for {parent_customer}: {e}") from e
 
 
 def next_product_id() -> int:

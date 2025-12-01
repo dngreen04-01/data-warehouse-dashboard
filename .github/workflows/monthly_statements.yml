@@ -1,21 +1,32 @@
 name: Generate Monthly Statements
 
 on:
+  workflow_dispatch:  # Allow manual trigger
   schedule:
-    - cron: "0 0 * * *" # Runs at 00:00 every day
+    # Run only on days 1-7 of each month at 00:00 UTC
+    # The script will check if it's actually the 2nd working day
+    - cron: "0 0 1-7 * *"
+
+permissions:
+  contents: write
+  pull-requests: write
 
 jobs:
   generate-statements:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Set up Python
-        uses: actions/setup-python@v2
+        uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+          cache: 'pip'
 
       - name: Install dependencies
         run: |
@@ -23,14 +34,35 @@ jobs:
           pip install -r requirements.txt
 
       - name: Generate statements
-        run: python scripts/generate_monthly_statements.py
+        id: generate
+        run: |
+          python scripts/generate_monthly_statements.py
+          # Check if any PDFs were generated
+          if [ -d "statements" ] && [ "$(ls -A statements 2>/dev/null)" ]; then
+            echo "statements_generated=true" >> $GITHUB_OUTPUT
+          else
+            echo "statements_generated=false" >> $GITHUB_OUTPUT
+          fi
         env:
           SUPABASE_CONNECTION_STRING: ${{ secrets.SUPABASE_CONNECTION_STRING }}
 
-      - name: Commit PDFs
-        run: |
-          git config --global user.name "github-actions[bot]"
-          git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          git add statements
-          git commit -m "Add monthly statements" || echo "No changes to commit"
-          git push
+      - name: Create Pull Request
+        if: steps.generate.outputs.statements_generated == 'true'
+        uses: peter-evans/create-pull-request@v6
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          commit-message: "Add monthly customer statements"
+          title: "Monthly Statements - ${{ github.run_id }}"
+          body: |
+            ## Monthly Statement Generation
+
+            This PR contains automatically generated customer statements.
+
+            - Generated on: ${{ github.event.repository.updated_at }}
+            - Workflow run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+            Please review the generated PDFs before merging.
+          branch: statements/${{ github.run_id }}
+          base: main
+          labels: automated,statements
+          delete-branch: true
