@@ -35,12 +35,21 @@ This repository delivers the Supabase-backed warehouse, ingestion code, and anal
 
 
 ## Analytics Web App
-- Launch a combined dashboard and admin UI with `streamlit run app/app.py`.
-- Sidebar filters cover customer, parent, cluster, market, product group, individual product, and a custom date range.
-- KPI cards show WTD/MTD/YTD revenue vs prior-year; interactive Plotly charts compare sales over time and provide breakdowns by market, parent customer, product group, and cluster.
-- Tables surface top products/customers/parent customers and a downloadable transaction-level detail grid.
-- Admin tabs support adding or updating customers and products directly in Supabase (IDs auto-increment when creating new records).
-- The app reuses the `.env` Supabase connection string—ensure it is populated before running.
+
+Launch the combined dashboard and admin UI:
+```bash
+python3 -m streamlit run app/app.py
+```
+
+**Features:**
+- Sidebar filters: customer, parent, cluster, market, product group, individual product, and date range
+- KPI cards: WTD/MTD/YTD revenue vs prior-year comparisons
+- Interactive Plotly charts: sales over time, breakdowns by market, parent customer, product group, and cluster
+- Top performers tables: products, customers, parent customers
+- Transaction-level detail grid with CSV download
+- Admin tabs: add or update customers and products directly in Supabase
+
+**Prerequisites:** Ensure `.env` is populated with `SUPABASE_CONNECTION_STRING` before running.
 
 ## Operational Notes
 - `dw.etl_run_log` captures status, row counts, and errors for each pipeline run; surface `mart.data_freshness` on the dashboard for transparency.

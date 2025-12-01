@@ -59,12 +59,13 @@ def get_connection():
 
 
 def fetch_reference_data() -> Dict[str, pd.DataFrame]:
+    # Exclude suppliers (customer_type = 'supplier') and archived records from dashboard filters
     queries = {
-        "customers": "select customer_id, customer_name, market, merchant_group from dw.dim_customer order by customer_name",
-        "products": "select product_id, product_code, item_name, product_group from dw.dim_product order by item_name",
+        "customers": "select customer_id, customer_name, market, merchant_group from dw.dim_customer where (archived = false or archived is null) and (customer_type != 'supplier' or customer_type is null) order by customer_name",
+        "products": "select product_id, product_code, item_name, product_group from dw.dim_product where (archived = false or archived is null) order by item_name",
         "clusters": "select cluster_id, cluster_label from dw.dim_cluster order by cluster_id",
-        "markets": "select distinct market from dw.dim_customer order by market",
-        "merchant_groups": "select distinct merchant_group from dw.dim_customer where merchant_group is not null and merchant_group <> '' order by merchant_group"
+        "markets": "select distinct market from dw.dim_customer where (archived = false or archived is null) and (customer_type != 'supplier' or customer_type is null) order by market",
+        "merchant_groups": "select distinct merchant_group from dw.dim_customer where (archived = false or archived is null) and (customer_type != 'supplier' or customer_type is null) and merchant_group is not null and merchant_group <> '' order by merchant_group"
     }
     frames: Dict[str, pd.DataFrame] = {}
     for key, query in queries.items():
@@ -405,13 +406,10 @@ def upsert_product(payload: Dict[str, Any]) -> None:
             conn.commit()
 
 
-def next_customer_id() -> int:
-    query = "select coalesce(max(customer_id::bigint), 0) + 1 as next_id from dw.dim_customer"
-    with get_connection() as conn:
-        with conn.cursor() as cur:
-            cur.execute(query)
-            row = cur.fetchone()
-            return int(row["next_id"])
+def next_customer_id() -> str:
+    """Generate next customer ID. Returns UUID for new customers since Xero uses UUIDs."""
+    import uuid
+    return str(uuid.uuid4())
 
 
 def next_product_id() -> int:
@@ -421,4 +419,50 @@ def next_product_id() -> int:
             cur.execute(query)
             row = cur.fetchone()
             return int(row["next_id"])
+
+
+def fetch_archived_customers() -> pd.DataFrame:
+    """Fetch archived customers for the archived records view."""
+    query = """
+        select customer_id, customer_name, market, merchant_group, merged_into
+        from dw.dim_customer
+        where archived = true
+        order by customer_name
+    """
+    return _read_dataframe(query)
+
+
+def fetch_archived_products() -> pd.DataFrame:
+    """Fetch archived products for the archived records view."""
+    query = """
+        select product_id, product_code, item_name, product_group
+        from dw.dim_product
+        where archived = true
+        order by item_name
+    """
+    return _read_dataframe(query)
+
+
+def fetch_xero_customers() -> pd.DataFrame:
+    """Fetch customers that came from Xero (identified by UUID format customer_id)."""
+    query = """
+        select customer_id, customer_name
+        from dw.dim_customer
+        where (archived = false or archived is null)
+        and customer_id ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+        order by customer_name
+    """
+    return _read_dataframe(query)
+
+
+def fetch_historical_customers() -> pd.DataFrame:
+    """Fetch historical customers (non-UUID format customer_id)."""
+    query = """
+        select customer_id, customer_name
+        from dw.dim_customer
+        where (archived = false or archived is null)
+        and customer_id !~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+        order by customer_name
+    """
+    return _read_dataframe(query)
 
