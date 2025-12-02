@@ -209,15 +209,25 @@ def extract_dataframes(invoices: List[dict]) -> Tuple[pd.DataFrame, pd.DataFrame
     invoice_rows = []
     line_rows = []
     for inv in invoices:
+        # Xero Status values: DRAFT, SUBMITTED, AUTHORISED, PAID, VOIDED, DELETED
+        status = inv.get("Status", "UNKNOWN")
+        amount_due = inv.get("AmountDue", 0) or 0
+        total = inv.get("Total", 0) or 0
+        amount_paid = total - amount_due
+
         invoice_rows.append(
             {
                 "invoice_number": inv.get("InvoiceNumber"),
                 "document_type": inv.get("Type"),
                 "invoice_date": pendulum.parse(inv.get("Date"), strict=False).date() if inv.get("Date") else None,
                 "lines": len(inv.get("LineItems", [])),
-                "net_amount": inv.get("Total"),
+                "net_amount": total,
                 "customer_id": inv.get("Contact", {}).get("ContactID"),
                 "customer_name": inv.get("Contact", {}).get("Name"),
+                "status": status,
+                "amount_due": amount_due,
+                "amount_paid": amount_paid,
+                "load_source": "xero_api",
             }
         )
         for line in inv.get("LineItems", []):
@@ -242,7 +252,7 @@ def extract_dataframes(invoices: List[dict]) -> Tuple[pd.DataFrame, pd.DataFrame
     for frame in (invoice_df, line_df):
         if frame.empty:
             continue
-        for col in ("net_amount", "qty", "unit_price", "line_amount"):
+        for col in ("net_amount", "qty", "unit_price", "line_amount", "amount_due", "amount_paid"):
             if col in frame.columns:
                 frame[col] = pd.to_numeric(frame[col], errors="coerce").fillna(0)
         if "invoice_date" in frame.columns:

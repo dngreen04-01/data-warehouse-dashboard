@@ -405,13 +405,10 @@ def upsert_product(payload: Dict[str, Any]) -> None:
             conn.commit()
 
 
-def next_customer_id() -> int:
-    query = "select coalesce(max(customer_id::bigint), 0) + 1 as next_id from dw.dim_customer"
-    with get_connection() as conn:
-        with conn.cursor() as cur:
-            cur.execute(query)
-            row = cur.fetchone()
-            return int(row["next_id"])
+def next_customer_id() -> str:
+    """Generate next customer ID. Returns UUID for new customers since Xero uses UUIDs."""
+    import uuid
+    return str(uuid.uuid4())
 
 
 def fetch_statement_data(parent_customer: str) -> pd.DataFrame:
