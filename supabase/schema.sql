@@ -140,6 +140,24 @@ begin
             error_message text
         );
     end if;
+
+    if not exists (
+        select 1 from information_schema.tables
+        where table_schema = 'dw' and table_name = 'xero_tokens'
+    ) then
+        create table dw.xero_tokens (
+            tenant_id text primary key,
+            refresh_token bytea not null,
+            access_token bytea not null,
+            token_expiry timestamptz not null,
+            updated_at timestamptz default timezone('utc', now()),
+            encryption_version integer default 1
+        );
+
+        -- Add comment to document encryption
+        comment on column dw.xero_tokens.refresh_token is 'Encrypted using pgcrypto pgp_sym_encrypt';
+        comment on column dw.xero_tokens.access_token is 'Encrypted using pgcrypto pgp_sym_encrypt';
+    end if;
 end$$;
 
 -- Convenience indexes

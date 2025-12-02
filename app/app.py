@@ -8,6 +8,12 @@ import plotly.express as px
 import streamlit as st
 from dotenv import load_dotenv
 
+import sys
+from pathlib import Path
+
+# Add app directory to path for imports when running from project root
+sys.path.insert(0, str(Path(__file__).parent))
+
 from data_access import (
     DateFilters,
     fetch_breakdown,
@@ -23,6 +29,24 @@ from data_access import (
     next_product_id,
     upsert_customer,
     upsert_product,
+    get_connection,
+    fetch_archived_customers,
+    fetch_archived_products,
+    fetch_xero_customers,
+    fetch_historical_customers,
+)
+from data_management import (
+    find_customer_matches,
+    merge_customers,
+    archive_customers_by_date,
+    archive_products_by_date,
+    get_archive_preview,
+    get_customers_to_archive,
+    get_products_to_archive,
+    archive_customers_by_ids,
+    archive_products_by_ids,
+    unarchive_customer,
+    unarchive_product,
 )
 from statement_generator import generate_statement_pdf, sanitize_filename
 
@@ -451,6 +475,267 @@ with maintenance_tabs[1]:
             upsert_product(payload)
             st.success(f"Product '{item_name}' saved.")
             st.cache_data.clear()
+
+# Data Management Section
+st.markdown("---")
+st.header("Data Management")
+
+data_mgmt_tabs = st.tabs(["Customer Matching", "Bulk Archive", "Archived Records"])
+
+with data_mgmt_tabs[0]:
+    st.subheader("Match Xero Customers to Historical Records")
+    st.markdown("""
+    This tool finds potential matches between newly imported Xero customers and your historical customer records.
+    Review the suggestions below and confirm matches to merge duplicate records.
+    """)
+
+    # Get customers - Xero customers typically have UUID-style IDs
+    all_customers = reference_data["customers"]
+
+    # Identify Xero customers (UUID format) vs historical (numeric or specific patterns)
+    def is_xero_customer(cid):
+        if not cid:
+            return False
+        cid_str = str(cid)
+        # UUID pattern: 8-4-4-4-12 hex chars
+        import re
+        return bool(re.match(r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$', cid_str, re.I))
+
+    xero_customers = all_customers[all_customers['customer_id'].apply(is_xero_customer)]
+    historical_customers = all_customers[~all_customers['customer_id'].apply(is_xero_customer)]
+
+    st.info(f"Found {len(xero_customers)} Xero customers and {len(historical_customers)} historical customers")
+
+    if len(xero_customers) > 0 and len(historical_customers) > 0:
+        min_score = st.slider("Minimum match score", 0.3, 0.9, 0.5, 0.05)
+
+        if st.button("Find Matches", key="find_matches_btn"):
+            with st.spinner("Analyzing customer names..."):
+                matches = find_customer_matches(xero_customers, historical_customers, min_score)
+            # Store matches in session state
+            st.session_state['customer_matches'] = matches
+            if not matches:
+                st.session_state['customer_matches'] = []
+
+        # Display matches from session state (persists across reruns)
+        if 'customer_matches' in st.session_state and st.session_state['customer_matches']:
+            matches = st.session_state['customer_matches']
+            st.success(f"Found {len(matches)} potential matches")
+
+            # Display matches in a table
+            match_data = []
+            for m in matches:
+                match_data.append({
+                    'Xero Customer': m.xero_customer_name,
+                    'Historical Customer': m.historical_customer_name,
+                    'Score': f"{m.similarity_score:.0%}",
+                    'Match Type': m.match_type,
+                    'xero_id': m.xero_customer_id,
+                    'hist_id': m.historical_customer_id,
+                })
+
+            match_df = pd.DataFrame(match_data)
+            st.dataframe(
+                match_df[['Xero Customer', 'Historical Customer', 'Score', 'Match Type']],
+                use_container_width=True
+            )
+
+            # Allow user to select and merge
+            st.markdown("### Merge Selected Matches")
+            selected_idx = st.multiselect(
+                "Select matches to merge (Xero -> Historical)",
+                options=range(len(matches)),
+                format_func=lambda i: f"{matches[i].xero_customer_name} -> {matches[i].historical_customer_name}",
+                key="merge_selection"
+            )
+
+            if selected_idx and st.button("Merge Selected", type="primary", key="merge_btn"):
+                with get_connection() as conn:
+                    total_updated = 0
+                    for idx in selected_idx:
+                        m = matches[idx]
+                        updated = merge_customers(conn, m.xero_customer_id, m.historical_customer_id)
+                        total_updated += updated
+                        st.write(f"Merged '{m.xero_customer_name}' -> '{m.historical_customer_name}' ({updated} records)")
+
+                st.success(f"Merged {len(selected_idx)} customers. Updated {total_updated} transaction records.")
+                # Clear matches from session state after merge
+                del st.session_state['customer_matches']
+                st.cache_data.clear()
+                st.rerun()
+
+        elif 'customer_matches' in st.session_state and not st.session_state['customer_matches']:
+            st.info("No matches found with the current threshold. Try lowering the minimum score.")
+    else:
+        st.warning("Need both Xero and historical customers to find matches.")
+
+with data_mgmt_tabs[1]:
+    st.subheader("Bulk Archive Old Data")
+    st.markdown("""
+    Archive customers and products that have no transactions after a specified date.
+    Archived records won't appear in dashboard filters but data is preserved.
+    """)
+
+    col1, col2 = st.columns(2)
+    with col1:
+        archive_date = st.date_input(
+            "Archive records with no activity after",
+            value=pendulum.now().subtract(years=5).date(),
+            help="Records with no transactions after this date will be archived"
+        )
+
+    with col2:
+        if st.button("Preview Archive", key="preview_archive"):
+            with get_connection() as conn:
+                customers_to_archive = get_customers_to_archive(conn, str(archive_date))
+                products_to_archive = get_products_to_archive(conn, str(archive_date))
+            st.session_state['archive_preview'] = {
+                'customers': customers_to_archive,
+                'products': products_to_archive,
+                'date': str(archive_date)
+            }
+
+    if 'archive_preview' in st.session_state:
+        preview = st.session_state['archive_preview']
+        customers_list = preview['customers']
+        products_list = preview['products']
+
+        st.info(f"**Preview Results** (no activity after {preview['date']}): {len(customers_list)} customers, {len(products_list)} products")
+
+        # Customer archive section
+        st.markdown("### Customers to Archive")
+        if customers_list:
+            cust_df = pd.DataFrame(customers_list)
+            cust_df.columns = ['ID', 'Name', 'Market', 'Merchant Group']
+            st.dataframe(cust_df[['Name', 'Market', 'Merchant Group']], use_container_width=True, height=200)
+
+            # Allow excluding customers
+            exclude_customers = st.multiselect(
+                "Exclude customers from archive (they will NOT be archived)",
+                options=[c['customer_id'] for c in customers_list],
+                format_func=lambda cid: next((c['customer_name'] for c in customers_list if c['customer_id'] == cid), cid),
+                key="exclude_customers"
+            )
+
+            customers_to_actually_archive = [c['customer_id'] for c in customers_list if c['customer_id'] not in exclude_customers]
+
+            if st.button(f"Archive {len(customers_to_actually_archive)} Customers", type="primary", disabled=len(customers_to_actually_archive) == 0):
+                with get_connection() as conn:
+                    archived = archive_customers_by_ids(conn, customers_to_actually_archive)
+                st.success(f"Archived {archived} customers")
+                st.cache_data.clear()
+                del st.session_state['archive_preview']
+                st.rerun()
+        else:
+            st.success("No customers to archive for this date range.")
+
+        st.markdown("---")
+
+        # Product archive section
+        st.markdown("### Products to Archive")
+        if products_list:
+            prod_df = pd.DataFrame(products_list)
+            prod_df.columns = ['ID', 'Code', 'Name', 'Group']
+            st.dataframe(prod_df[['Code', 'Name', 'Group']], use_container_width=True, height=200)
+
+            # Allow excluding products
+            exclude_products = st.multiselect(
+                "Exclude products from archive (they will NOT be archived)",
+                options=[p['product_id'] for p in products_list],
+                format_func=lambda pid: next((f"{p['item_name']} ({p['product_code']})" for p in products_list if p['product_id'] == pid), str(pid)),
+                key="exclude_products"
+            )
+
+            products_to_actually_archive = [p['product_id'] for p in products_list if p['product_id'] not in exclude_products]
+
+            if st.button(f"Archive {len(products_to_actually_archive)} Products", type="primary", disabled=len(products_to_actually_archive) == 0):
+                with get_connection() as conn:
+                    archived = archive_products_by_ids(conn, products_to_actually_archive)
+                st.success(f"Archived {archived} products")
+                st.cache_data.clear()
+                del st.session_state['archive_preview']
+                st.rerun()
+        else:
+            st.success("No products to archive for this date range.")
+
+        # Clear preview button
+        if st.button("Clear Preview", key="clear_preview"):
+            del st.session_state['archive_preview']
+            st.rerun()
+
+with data_mgmt_tabs[2]:
+    st.subheader("View and Restore Archived Records")
+
+    archived_type = st.radio("Record type", ["Customers", "Products"], horizontal=True)
+
+    if archived_type == "Customers":
+        # Fetch archived customers
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    SELECT customer_id, customer_name, market, merged_into, created_at
+                    FROM dw.dim_customer
+                    WHERE archived = true
+                    ORDER BY customer_name
+                """)
+                archived_customers = cur.fetchall()
+
+        if archived_customers:
+            archived_df = pd.DataFrame(archived_customers)
+            archived_df.columns = ['ID', 'Name', 'Market', 'Merged Into', 'Created']
+            st.dataframe(archived_df, use_container_width=True)
+
+            # Unarchive option
+            selected_to_restore = st.selectbox(
+                "Select customer to restore",
+                options=[c['customer_id'] for c in archived_customers],
+                format_func=lambda cid: next((c['customer_name'] for c in archived_customers if c['customer_id'] == cid), cid)
+            )
+
+            if st.button("Restore Selected Customer"):
+                with get_connection() as conn:
+                    if unarchive_customer(conn, selected_to_restore):
+                        st.success("Customer restored successfully")
+                        st.cache_data.clear()
+                        st.rerun()
+                    else:
+                        st.error("Failed to restore customer")
+        else:
+            st.info("No archived customers found.")
+
+    else:  # Products
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    SELECT product_id, product_code, item_name, product_group, created_at
+                    FROM dw.dim_product
+                    WHERE archived = true
+                    ORDER BY item_name
+                """)
+                archived_products = cur.fetchall()
+
+        if archived_products:
+            archived_df = pd.DataFrame(archived_products)
+            archived_df.columns = ['ID', 'Code', 'Name', 'Group', 'Created']
+            st.dataframe(archived_df, use_container_width=True)
+
+            # Unarchive option
+            selected_to_restore = st.selectbox(
+                "Select product to restore",
+                options=[p['product_id'] for p in archived_products],
+                format_func=lambda pid: next((f"{p['item_name']} ({p['product_code']})" for p in archived_products if p['product_id'] == pid), str(pid))
+            )
+
+            if st.button("Restore Selected Product"):
+                with get_connection() as conn:
+                    if unarchive_product(conn, selected_to_restore):
+                        st.success("Product restored successfully")
+                        st.cache_data.clear()
+                        st.rerun()
+                    else:
+                        st.error("Failed to restore product")
+        else:
+            st.info("No archived products found.")
 
 
 with maintenance_tabs[2]:

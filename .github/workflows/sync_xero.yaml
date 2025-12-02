@@ -27,7 +27,7 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install pandas pendulum psycopg[binary] python-dotenv requests
+          pip install -r requirements.txt
 
       - name: Run Xero Sync with Retry
         id: xero-sync
@@ -42,6 +42,7 @@ jobs:
           XERO_CLIENT_ID: ${{ secrets.XERO_CLIENT_ID }}
           XERO_CLIENT_SECRET: ${{ secrets.XERO_CLIENT_SECRET }}
           XERO_TENANT_ID: ${{ secrets.XERO_TENANT_ID }}
+          XERO_ENCRYPTION_KEY: ${{ secrets.XERO_ENCRYPTION_KEY }}
 
       - name: Notify on Failure
         if: failure()
