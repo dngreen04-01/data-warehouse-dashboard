@@ -4,12 +4,12 @@ import pendulum
 from data_access import (
     next_product_id,
     upsert_product,
-    get_connection,
-    unarchive_product
+    get_connection
 )
 from data_management import (
     get_products_to_archive,
-    archive_products_by_ids
+    archive_products_by_ids,
+    unarchive_product
 )
 
 def render_products(reference_data):

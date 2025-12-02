@@ -4,14 +4,14 @@ import pendulum
 from data_access import (
     next_customer_id,
     upsert_customer,
-    get_connection,
-    unarchive_customer
+    get_connection
 )
 from data_management import (
     find_customer_matches,
     merge_customers,
     get_customers_to_archive,
     archive_customers_by_ids,
+    unarchive_customer,
     CustomerMatch
 )
 
