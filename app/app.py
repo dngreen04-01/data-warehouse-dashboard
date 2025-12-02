@@ -24,6 +24,7 @@ from data_access import (
     fetch_transactions,
     fetch_year_over_year_breakdown,
     fetch_cluster_members,
+    fetch_statement_data,
     next_customer_id,
     next_product_id,
     upsert_customer,
@@ -47,6 +48,7 @@ from data_management import (
     unarchive_customer,
     unarchive_product,
 )
+from statement_generator import generate_statement_pdf, sanitize_filename
 
 load_dotenv()
 
@@ -374,7 +376,7 @@ else:
 st.markdown("---")
 st.header("Data Maintenance")
 
-maintenance_tabs = st.tabs(["Customers", "Products"])
+maintenance_tabs = st.tabs(["Customers", "Products", "Statements"])
 
 with maintenance_tabs[0]:
     st.subheader("Add or Update Customer")
@@ -734,6 +736,47 @@ with data_mgmt_tabs[2]:
                         st.error("Failed to restore product")
         else:
             st.info("No archived products found.")
+
+
+with maintenance_tabs[2]:
+    st.subheader("Generate Customer Statements")
+    merchant_groups_df = reference_data.get("merchant_groups")
+    if merchant_groups_df is not None and not merchant_groups_df.empty:
+        parent_customers = merchant_groups_df["merchant_group"].dropna().tolist()
+    else:
+        parent_customers = []
+
+    if not parent_customers:
+        st.warning("No parent customers (merchant groups) available.")
+    else:
+        selected_parent = st.selectbox("Select parent customer", parent_customers)
+
+        if st.button("Generate Statement"):
+            if selected_parent:
+                try:
+                    with st.spinner("Fetching statement data..."):
+                        statement_data = fetch_statement_data(selected_parent)
+
+                    if not statement_data.empty:
+                        st.dataframe(statement_data, use_container_width=True, hide_index=True)
+
+                        try:
+                            pdf_bytes = generate_statement_pdf(statement_data)
+                            safe_filename = sanitize_filename(selected_parent)
+                            st.download_button(
+                                label="Download as PDF",
+                                data=pdf_bytes,
+                                file_name=f"statement_{safe_filename}.pdf",
+                                mime="application/pdf",
+                            )
+                        except Exception as e:
+                            st.error(f"Failed to generate PDF: {e}")
+                    else:
+                        st.info("No outstanding invoices for this customer.")
+                except Exception as e:
+                    st.error(f"Failed to fetch statement data: {e}")
+            else:
+                st.warning("Please select a parent customer.")
 
 
 run_command = "streamlit run app/app.py"

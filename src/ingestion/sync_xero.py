@@ -466,31 +466,42 @@ def extract_dataframes(invoices: List[dict]) -> Tuple[pd.DataFrame, pd.DataFrame
     voided_invoices = []
 
     for inv in invoices:
-        invoice_status = inv.get("Status", "").upper()
+        # Xero Status values: DRAFT, SUBMITTED, AUTHORISED, PAID, VOIDED, DELETED
+        status = inv.get("Status", "UNKNOWN")
         invoice_number = inv.get("InvoiceNumber")
 
         # Track voided/deleted invoices for removal
-        if invoice_status in ("VOIDED", "DELETED"):
+        if status.upper() in ("VOIDED", "DELETED"):
             if invoice_number:
                 voided_invoices.append(invoice_number)
             continue  # Skip adding to dataframes
 
+        # Payment status tracking
+        amount_due = inv.get("AmountDue", 0) or 0
+        total = inv.get("Total", 0) or 0
+        amount_paid = total - amount_due
+
         invoice_date = parse_xero_date(inv.get("Date"))
+
         invoice_rows.append(
             {
                 "invoice_number": invoice_number,
                 "document_type": inv.get("Type"),
                 "invoice_date": invoice_date,
                 "lines": len(inv.get("LineItems", [])),
-                "net_amount": inv.get("Total"),
+                "net_amount": total,
                 "customer_id": inv.get("Contact", {}).get("ContactID"),
                 "customer_name": inv.get("Contact", {}).get("Name"),
+                "status": status,
+                "amount_due": amount_due,
+                "amount_paid": amount_paid,
+                "load_source": "xero_api",
             }
         )
         for line in inv.get("LineItems", []):
             line_rows.append(
                 {
-                    "invoice_number": inv.get("InvoiceNumber"),
+                    "invoice_number": invoice_number,
                     "invoice_date": invoice_date,
                     "document_type": inv.get("Type"),
                     "customer_id": inv.get("Contact", {}).get("ContactID"),
@@ -509,7 +520,7 @@ def extract_dataframes(invoices: List[dict]) -> Tuple[pd.DataFrame, pd.DataFrame
     for frame in (invoice_df, line_df):
         if frame.empty:
             continue
-        for col in ("net_amount", "qty", "unit_price", "line_amount"):
+        for col in ("net_amount", "qty", "unit_price", "line_amount", "amount_due", "amount_paid"):
             if col in frame.columns:
                 frame[col] = pd.to_numeric(frame[col], errors="coerce").fillna(0)
     return invoice_df, line_df, voided_invoices

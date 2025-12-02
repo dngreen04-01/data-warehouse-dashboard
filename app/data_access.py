@@ -412,6 +412,42 @@ def next_customer_id() -> str:
     return str(uuid.uuid4())
 
 
+def fetch_statement_data(parent_customer: str) -> pd.DataFrame:
+    """Fetch the data required to generate a statement for a parent customer.
+
+    Args:
+        parent_customer: The merchant group name to fetch statement data for.
+
+    Returns:
+        DataFrame with statement details including merchant_group, customer_name,
+        bill_to, invoice details, and aging information.
+
+    Raises:
+        RuntimeError: If database connection fails.
+    """
+    query = """
+        select
+            merchant_group,
+            customer_name,
+            bill_to,
+            invoice_number,
+            invoice_date,
+            due_date,
+            outstanding_amount,
+            aging_bucket
+        from mart.vw_statement_details
+        where
+            merchant_group = %s
+        order by
+            customer_name,
+            invoice_date
+    """
+    try:
+        return _read_dataframe(query, [parent_customer])
+    except Exception as e:
+        raise RuntimeError(f"Failed to fetch statement data for {parent_customer}: {e}") from e
+
+
 def next_product_id() -> int:
     query = "select coalesce(max(product_id), 0) + 1 as next_id from dw.dim_product"
     with get_connection() as conn:

@@ -84,6 +84,10 @@ begin
             net_amount numeric(18,2),
             customer_id text references dw.dim_customer(customer_id),
             customer_name text,
+            status text default 'UNKNOWN',
+            amount_due numeric(18,2) default 0,
+            amount_paid numeric(18,2) default 0,
+            load_source text default 'unknown',
             primary key (invoice_number, invoice_date)
         );
     end if;

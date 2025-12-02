@@ -2,21 +2,27 @@ name: Daily Xero Sync
 
 on:
   schedule:
-    # Run at 01:00 UTC every day
     - cron: '0 1 * * *'
   workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
 
 jobs:
   sync-xero:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
+
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Set up Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+          cache: 'pip'
 
       - name: Install dependencies
         run: |
@@ -25,12 +31,12 @@ jobs:
 
       - name: Run Xero Sync with Retry
         id: xero-sync
-        uses: nick-fields/retry-action@v2
+        uses: nick-fields/retry@v3
         with:
           timeout_minutes: 10
           max_attempts: 3
           retry_wait_seconds: 60
-          command: python -m src.ingestion.sync_xero
+          command: python src/ingestion/sync_xero.py
         env:
           SUPABASE_CONNECTION_STRING: ${{ secrets.SUPABASE_CONNECTION_STRING }}
           XERO_CLIENT_ID: ${{ secrets.XERO_CLIENT_ID }}
@@ -40,7 +46,7 @@ jobs:
 
       - name: Notify on Failure
         if: failure()
-        uses: actions/github-script@v6
+        uses: actions/github-script@v7
         with:
           script: |
             const issue_body = `### Xero Sync Failure Alert
