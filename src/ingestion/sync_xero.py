@@ -509,6 +509,7 @@ def extract_dataframes(invoices: List[dict]) -> Tuple[pd.DataFrame, pd.DataFrame
                     "product_id": None,
                     "product_code": line.get("ItemCode"),
                     "item_name": line.get("Description"),
+                    "account_code": line.get("AccountCode"),
                     "qty": line.get("Quantity"),
                     "unit_price": line.get("UnitAmount"),
                     "line_amount": line.get("LineAmount"),
