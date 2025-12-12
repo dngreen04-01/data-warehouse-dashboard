@@ -29,20 +29,10 @@ def fetch_budgets(client: XeroClient) -> list:
     
     budgets = resp.json().get("Budgets", [])
     logger.info(f"Found {len(budgets)} budgets: {[b.get('Description') for b in budgets]}")
-    
-    # Filter for specific budget as per user request
-    target_budget = "Budget F26 Updated"
-    filtered_budgets = [b for b in budgets if b.get("Description") == target_budget]
-    
-    if not filtered_budgets:
-        logger.warning(f"Target budget '{target_budget}' not found! Proceeding with all budgets matching Revenue accounts (if any).")
-        # specific request failed, but maybe we shouldn't fallback to all if it messes up data?
-        # User was specific. Let's warn and return empty? Or just log?
-        # Let's stick to the filtered list. If empty, the loop below does nothing.
-    else:
-        logger.info(f"Filtering for target budget: {target_budget}")
-        budgets = filtered_budgets
-    
+
+    # Sync ALL budgets - no filtering
+    # Available budgets will include: overall budget, Budget F26 Updated, F26, TBO NZ budget test, trial 2016, etc.
+
     all_budget_data = []
     
     for b in budgets:
@@ -176,15 +166,14 @@ def sync_budgets():
             # Or just return.
             return
 
-        # 4. Aggregate by Month
+        # 4. Aggregate by Budget Name and Month
         df = pd.DataFrame(revenue_budget_data)
         df['amount'] = pd.to_numeric(df['amount'])
-        
-        # Group by period_date
-        aggregated = df.groupby('period_date')['amount'].sum().reset_index()
-        
-        # Add metadata for insert
-        aggregated['budget_name'] = 'Total Revenue' 
+
+        # Group by budget_name AND period_date to preserve individual budget identities
+        aggregated = df.groupby(['budget_name', 'period_date'])['amount'].sum().reset_index()
+
+        logger.info(f"Aggregated into {len(aggregated)} budget-month combinations across {aggregated['budget_name'].nunique()} budgets") 
         
         # 5. Upsert
         upsert_budgets(conn, aggregated)

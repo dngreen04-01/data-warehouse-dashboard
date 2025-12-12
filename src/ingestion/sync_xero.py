@@ -584,14 +584,40 @@ def update_sync_state(conn, invoice_date: date | None):
     conn.commit()
 
 
+def validate_connection_string(conn_str: str) -> None:
+    """Validate and log connection string details (without exposing secrets)."""
+    from urllib.parse import urlparse
+
+    if not conn_str:
+        return
+
+    try:
+        parsed = urlparse(conn_str)
+        logger.info(f"Database host: {parsed.hostname}")
+        logger.info(f"Database port: {parsed.port or 5432}")
+        logger.info(f"Database name: {parsed.path.lstrip('/')}")
+
+        # Warn about potential IPv6 issues
+        if parsed.port == 5432:
+            logger.warning(
+                "Using direct connection (port 5432). "
+                "If running in GitHub Actions, consider using pooler URL (port 6543) for IPv4 compatibility."
+            )
+    except Exception as e:
+        logger.warning(f"Could not parse connection string: {e}")
+
+
 def main():
     """Main entry point for Xero sync process."""
     load_dotenv(override=True)
 
     logger.info("Starting Xero sync process")
+    logger.info(f"Python version: {sys.version.split()[0]}")
 
     # Validate environment variables
     conn_str = os.getenv("SUPABASE_CONNECTION_STRING")
+    validate_connection_string(conn_str)
+
     creds = XeroCredentials(
         client_id=os.getenv("XERO_CLIENT_ID", ""),
         client_secret=os.getenv("XERO_CLIENT_SECRET", ""),

@@ -123,7 +123,7 @@ def render_customers(reference_data):
                 'Type': m.match_type
             } for m in matches]
             
-            st.dataframe(pd.DataFrame(match_data), use_container_width=True)
+            st.dataframe(pd.DataFrame(match_data), width='stretch')
             
             # Merge Action
             st.markdown("### Apply Merges")
@@ -171,9 +171,9 @@ def render_customers(reference_data):
                 st.warning(f"Found {len(to_archive)} inactive customers.")
                 df_arch = pd.DataFrame(to_archive)
                 if not df_arch.empty:
-                    st.dataframe(
-                        df_arch[['customer_name', 'market', 'merchant_group']].rename(columns={'customer_name': 'Name'}), 
-                        use_container_width=True, height=200
+st.dataframe(
+                        df_arch[['customer_name', 'market', 'merchant_group']].rename(columns={'customer_name': 'Name'}),
+                        height=200, width='stretch'
                     )
                 
                 # Exclude option

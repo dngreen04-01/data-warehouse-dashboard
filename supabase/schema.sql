@@ -23,6 +23,9 @@ begin
             market text,
             merchant_group text,
             xero_account_number text,
+            archived boolean default false,
+            customer_type text default 'customer',
+            merged_into text,
             created_at timestamptz default timezone('utc', now()),
             updated_at timestamptz default timezone('utc', now())
         );
@@ -67,6 +70,7 @@ begin
             product_group text,
             price numeric(18,2),
             gross_price numeric(18,2),
+            archived boolean default false,
             created_at timestamptz default timezone('utc', now()),
             updated_at timestamptz default timezone('utc', now())
         );

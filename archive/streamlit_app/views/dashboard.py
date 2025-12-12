@@ -133,7 +133,7 @@ def render_dashboard(filters, date_filters, filters_serialized, current_end):
                     xaxis_tickangle=-45,
                     coloraxis_showscale=False
                 )
-                st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width='stretch')
 
     # --- Top Performers ---
     st.markdown("### Top Performers")

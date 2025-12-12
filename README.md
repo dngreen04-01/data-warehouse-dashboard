@@ -34,22 +34,52 @@ This repository delivers the Supabase-backed warehouse, ingestion code, and anal
    - Manual sync: `python -m src.ingestion.sync_xero`
 
 
-## Analytics Web App
+## React Analytics Web App
 
-Launch the combined dashboard and admin UI:
+The primary frontend is a modern React application with TypeScript and Tailwind CSS.
+
+### Setup
 ```bash
-python3 -m streamlit run app/app.py
+cd frontend
+npm install
+npm run dev
 ```
 
-**Features:**
-- Sidebar filters: customer, parent, cluster, market, product group, individual product, and date range
-- KPI cards: WTD/MTD/YTD revenue vs prior-year comparisons
-- Interactive Plotly charts: sales over time, breakdowns by market, parent customer, product group, and cluster
-- Top performers tables: products, customers, parent customers
-- Transaction-level detail grid with CSV download
-- Admin tabs: add or update customers and products directly in Supabase
+### Features
 
-**Prerequisites:** Ensure `.env` is populated with `SUPABASE_CONNECTION_STRING` before running.
+**Dashboard**
+- KPI cards with YoY comparisons (revenue, units, budget variance)
+- Budget vs Actual chart with **budget selector dropdown** for multiple budgets
+- Daily sales velocity with prior year comparison
+- Top performers by products, customers, markets
+- Key movers analysis (YoY changes)
+- Advanced filters: market, product group, merchant group, cluster
+
+**Customers**
+- Searchable customer database
+- Filter by market and customer type
+- Sortable columns with customer details
+
+**Products**
+- Product catalog with group summaries
+- Quick filter by clicking group cards
+- Search by name, code, or group
+
+**Statements**
+- Outstanding invoices by merchant group
+- **Aging summary cards** (Current, 1-30, 31-60, 61-90, 90+ days)
+- Click aging buckets to filter
+- Search across merchant groups, customers, invoices
+
+**Clusters**
+- Customer segmentation management
+- Add/remove customers from clusters
+
+### Authentication
+Uses Supabase Auth. Configure `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` in `frontend/.env`.
+
+### Legacy Streamlit App
+The original Streamlit app has been archived to `archive/streamlit_app/` for reference.
 
 ## Operational Notes
 - `dw.etl_run_log` captures status, row counts, and errors for each pipeline run; surface `mart.data_freshness` on the dashboard for transparency.
