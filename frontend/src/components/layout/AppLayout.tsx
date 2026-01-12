@@ -12,7 +12,9 @@ import {
     ChevronRight,
     BarChart3,
     AlertTriangle,
-    GitMerge
+    GitMerge,
+    MessageSquare,
+    Mail
 } from 'lucide-react';
 import { Link, useLocation } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
@@ -25,6 +27,8 @@ const navigation = [
     { name: 'Data Maintenance', href: '/maintenance', icon: GitMerge, description: 'Match & consolidate data' },
     { name: 'Statements', href: '/statements', icon: FileText, description: 'Outstanding invoices' },
     { name: 'Clusters', href: '/clusters', icon: Users, description: 'Customer segments' },
+    { name: 'CRM', href: '/crm', icon: MessageSquare, description: 'Email insights' },
+    { name: 'Email Reports', href: '/email-subscriptions', icon: Mail, description: 'Manage weekly reports' },
 ];
 
 const debugNavigation = [

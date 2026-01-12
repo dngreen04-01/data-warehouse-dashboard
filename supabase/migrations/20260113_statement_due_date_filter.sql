@@ -1,18 +1,15 @@
--- Migration: Statement Filtering Logic & Public Wrapper
--- Date: 2025-12-12
--- Description: Updates the statement view in 'mart' schema with strict filtering.
---              Re-creates 'public' view wrapper for frontend compatibility.
+-- Migration: Statement Due Date Filtering
+-- Date: 2026-01-13
+-- Description: Update statement view to include invoices due by month-end and age by due date.
 
 -- 1. Update the core logic in MART schema
 DROP VIEW IF EXISTS mart.vw_statement_details CASCADE;
 
 CREATE VIEW mart.vw_statement_details AS
 SELECT
-    -- Use master customer's merchant_group for consolidation, fallback to child's if no master
     COALESCE(master.merchant_group, c.merchant_group) as merchant_group,
     c.customer_name,
     c.bill_to,
-    -- Include master's bill_to for head office address
     master.bill_to as head_office_address,
     i.invoice_number,
     i.invoice_date,
@@ -20,15 +17,14 @@ SELECT
     i.amount_due as outstanding_amount,
     i.status as invoice_status,
     CASE
-        WHEN (current_date - i.invoice_date) <= 30 THEN 'current'
-        WHEN (current_date - i.invoice_date) <= 60 THEN '1-30'
-        WHEN (current_date - i.invoice_date) <= 90 THEN '31-60'
-        WHEN (current_date - i.invoice_date) <= 120 THEN '61-90'
+        WHEN (current_date - (i.invoice_date + interval '30 days')::date) <= 0 THEN 'current'
+        WHEN (current_date - (i.invoice_date + interval '30 days')::date) BETWEEN 1 AND 30 THEN '1-30'
+        WHEN (current_date - (i.invoice_date + interval '30 days')::date) BETWEEN 31 AND 60 THEN '31-60'
+        WHEN (current_date - (i.invoice_date + interval '30 days')::date) BETWEEN 61 AND 90 THEN '61-90'
         ELSE '90+'
     END as aging_bucket
 FROM dw.fct_invoice i
 JOIN dw.dim_customer c ON i.customer_id = c.customer_id
--- Left join to master customer to get consolidated merchant_group
 LEFT JOIN dw.dim_customer master ON c.master_customer_id = master.customer_id
 WHERE
     -- 1. Status Filter: Only AUTHORISED and Unpaid
@@ -36,8 +32,6 @@ WHERE
     AND i.amount_due > 0
 
     -- 2. Merchant Filter: Specific groups only
-    -- Filter by customer_name since merchant_group may be NULL
-    -- Customer names contain merchant info like "Farmlands - Gisborne"
     AND (
         c.customer_name ILIKE '%Farmlands%'
         OR c.customer_name ILIKE '%Wrightson%'
@@ -45,12 +39,13 @@ WHERE
         OR c.customer_name ILIKE '%Horticentre%'
     )
 
-    -- 3. Date Filter: Prior to the start of the current month
-    AND i.invoice_date < DATE_TRUNC('month', CURRENT_DATE)
+    -- 3. Date Filter: Due by end of the statement month
+    AND (i.invoice_date + interval '30 days')::date <= (
+        date_trunc('month', current_date) + interval '1 month' - interval '1 day'
+    )::date
 
     -- Keep existing safeguards
     AND (i.document_type IN ('ACCREC', 'Tax Invoice') OR i.document_type IS NULL)
-    -- Include child customers (archived=true with master_customer_id) and non-archived
     AND (c.archived = false OR c.archived IS NULL OR c.master_customer_id IS NOT NULL)
     AND (c.customer_type != 'supplier' OR c.customer_type IS NULL);
 
@@ -58,15 +53,13 @@ COMMENT ON VIEW mart.vw_statement_details IS
 'Outstanding authorised sales invoices for key merchants (Farmlands, Wrightson, HortiCentre).
 Uses master customer merchant_group for consolidation (enables grouped statements to head office).
 Includes head_office_address from master customer for billing purposes.
-Filters by customer_name patterns since child customer merchant_group may be NULL.
-Only includes invoices dated before the current month for statement generation.';
+Only includes invoices due by the end of the current month for statement generation.';
 
 GRANT SELECT ON mart.vw_statement_details TO authenticated;
 GRANT SELECT ON mart.vw_statement_details TO service_role;
 
 
 -- 2. Create PUBLIC wrapper for frontend access
--- The frontend currently queries 'vw_statement_details' without specifying schema (defaults to public)
 DROP VIEW IF EXISTS public.vw_statement_details CASCADE;
 
 CREATE VIEW public.vw_statement_details AS

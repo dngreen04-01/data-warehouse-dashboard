@@ -11,6 +11,8 @@ import Customers from '@/pages/Customers';
 import Products from '@/pages/Products';
 import InvoiceDebug from '@/pages/InvoiceDebug';
 import DataMaintenance from '@/pages/DataMaintenance';
+import CRM from '@/pages/CRM';
+import EmailSubscriptions from '@/pages/EmailSubscriptions';
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth();
@@ -41,6 +43,14 @@ export default function App() {
             element={
               <ProtectedRoute>
                 <Dashboard />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/crm"
+            element={
+              <ProtectedRoute>
+                <CRM />
               </ProtectedRoute>
             }
           />
@@ -92,8 +102,16 @@ export default function App() {
               </ProtectedRoute>
             }
           />
+          <Route
+            path="/email-subscriptions"
+            element={
+              <ProtectedRoute>
+                <EmailSubscriptions />
+              </ProtectedRoute>
+            }
+          />
         </Routes>
       </AuthProvider>
-    </BrowserRouter>
+    </BrowserRouter >
   );
 }

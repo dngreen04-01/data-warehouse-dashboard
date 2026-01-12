@@ -1,8 +1,10 @@
 import { useEffect, useState, useMemo } from 'react';
 import { supabase } from '@/lib/supabase';
-import { Loader2, Download, FileText, ChevronRight, Search } from 'lucide-react';
+import { Loader2, Download, FileText, ChevronRight, Search, CheckCircle, AlertCircle, RefreshCw } from 'lucide-react';
 import { format } from 'date-fns';
 import clsx from 'clsx';
+
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8001';
 
 const AGING_CONFIG = {
     'current': { label: 'Current', color: 'bg-green-100 text-green-800', priority: 0 },
@@ -14,26 +16,80 @@ const AGING_CONFIG = {
 
 export default function Statements() {
     const [loading, setLoading] = useState(true);
+    const [error, setError] = useState<string | null>(null);
     const [statements, setStatements] = useState<any[]>([]);
     const [searchQuery, setSearchQuery] = useState('');
     const [selectedAging, setSelectedAging] = useState<string | null>(null);
+    const [downloadingPdf, setDownloadingPdf] = useState<string | null>(null);
+    const [downloadStatus, setDownloadStatus] = useState<{ merchant: string; status: 'success' | 'error'; message: string } | null>(null);
 
     useEffect(() => {
         fetchStatements();
     }, []);
 
+    const handleDownloadPdf = async (merchantGroup: string) => {
+        setDownloadingPdf(merchantGroup);
+        setDownloadStatus(null);
+
+        try {
+            const response = await fetch(`${API_BASE_URL}/api/statement/${encodeURIComponent(merchantGroup)}/pdf`);
+
+            if (!response.ok) {
+                throw new Error(`Failed to generate PDF: ${response.statusText}`);
+            }
+
+            // Get filename from Content-Disposition header or create one
+            const contentDisposition = response.headers.get('Content-Disposition');
+            let filename = `Statement_${merchantGroup}_${new Date().toISOString().split('T')[0]}.pdf`;
+            if (contentDisposition) {
+                const filenameMatch = contentDisposition.match(/filename="(.+)"/);
+                if (filenameMatch) {
+                    filename = filenameMatch[1];
+                }
+            }
+
+            // Download the PDF
+            const blob = await response.blob();
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            window.URL.revokeObjectURL(url);
+            document.body.removeChild(a);
+
+            setDownloadStatus({ merchant: merchantGroup, status: 'success', message: 'PDF downloaded successfully' });
+
+            // Clear success message after 3 seconds
+            setTimeout(() => setDownloadStatus(null), 3000);
+
+        } catch (error) {
+            console.error('Error downloading PDF:', error);
+            setDownloadStatus({
+                merchant: merchantGroup,
+                status: 'error',
+                message: error instanceof Error ? error.message : 'Failed to download PDF'
+            });
+        } finally {
+            setDownloadingPdf(null);
+        }
+    };
+
     const fetchStatements = async () => {
         setLoading(true);
+        setError(null);
         try {
-            const { data, error } = await supabase
+            const { data, error: fetchError } = await supabase
                 .from('vw_statement_details')
                 .select('*')
                 .order('invoice_date', { ascending: false });
 
-            if (error) throw error;
+            if (fetchError) throw fetchError;
             setStatements(data || []);
-        } catch (error) {
-            console.error('Error fetching statements:', error);
+        } catch (err) {
+            console.error('Error fetching statements:', err);
+            setError(err instanceof Error ? err.message : 'Failed to load statements. Please try again.');
         } finally {
             setLoading(false);
         }
@@ -73,16 +129,21 @@ export default function Statements() {
         return result;
     }, [statements, searchQuery, selectedAging]);
 
-    // Grouping logic
+    // Grouping logic - group by merchant_group for consolidated statements
     const grouped = filteredStatements.reduce((acc: any, curr) => {
         const key = curr.merchant_group || curr.customer_name;
-        if (!acc[key]) acc[key] = [];
-        acc[key].push(curr);
+        if (!acc[key]) {
+            acc[key] = {
+                invoices: [],
+                headOfficeAddress: curr.head_office_address
+            };
+        }
+        acc[key].invoices.push(curr);
         return acc;
     }, {});
 
     const formatCurrency = (val: number) =>
-        new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(val);
+        new Intl.NumberFormat('en-NZ', { style: 'currency', currency: 'NZD' }).format(val);
 
     const totalOutstanding = statements.reduce((sum, inv) => sum + (inv.outstanding_amount || 0), 0);
 
@@ -163,11 +224,33 @@ export default function Statements() {
                 )}
             </div>
 
+            {/* Error Banner */}
+            {error && (
+                <div className="rounded-xl border border-red-200 bg-red-50 p-4 shadow-sm" role="alert">
+                    <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-3">
+                            <AlertCircle className="h-5 w-5 text-red-600" />
+                            <div>
+                                <p className="font-medium text-red-800">Failed to load statements</p>
+                                <p className="text-sm text-red-600">{error}</p>
+                            </div>
+                        </div>
+                        <button
+                            onClick={() => fetchStatements()}
+                            className="flex items-center gap-2 rounded-lg bg-red-100 px-3 py-2 text-sm font-medium text-red-700 hover:bg-red-200 transition-colors"
+                        >
+                            <RefreshCw className="h-4 w-4" />
+                            Retry
+                        </button>
+                    </div>
+                </div>
+            )}
+
             {loading ? (
                 <div className="flex h-64 items-center justify-center">
                     <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
                 </div>
-            ) : (
+            ) : error ? null : (
                 <div className="grid gap-6">
                     {Object.keys(grouped).length === 0 ? (
                         <div className="rounded-xl border border-gray-200 bg-white p-12 text-center">
@@ -190,9 +273,10 @@ export default function Statements() {
                             )}
                         </div>
                     ) : (
-                        Object.entries(grouped).map(([groupName, invList]) => {
-                            const invoices = invList as any[];
+                        Object.entries(grouped).map(([groupName, groupData]) => {
+                            const { invoices, headOfficeAddress } = groupData as { invoices: any[]; headOfficeAddress: string | null };
                             const totalDue = invoices.reduce((sum: number, inv: any) => sum + (inv.outstanding_amount || 0), 0);
+                            const uniqueBranches = [...new Set(invoices.map((inv: any) => inv.customer_name))];
 
                             return (
                                 <div key={groupName} className="rounded-xl border bg-white shadow-sm overflow-hidden">
@@ -202,7 +286,14 @@ export default function Statements() {
                                                 <FileText className="h-5 w-5 text-gray-500" />
                                                 {groupName}
                                             </h3>
-                                            <p className="text-sm text-gray-500">{invoices.length} open invoices</p>
+                                            <p className="text-sm text-gray-500">
+                                                {invoices.length} open invoices from {uniqueBranches.length} {uniqueBranches.length === 1 ? 'branch' : 'branches'}
+                                            </p>
+                                            {headOfficeAddress && (
+                                                <p className="text-xs text-gray-400 mt-1">
+                                                    Statement to: {headOfficeAddress.split(',').slice(0, 2).join(', ')}
+                                                </p>
+                                            )}
                                         </div>
                                         <div className="text-right">
                                             <p className="text-sm text-gray-500">Total Outstanding</p>
@@ -239,11 +330,42 @@ export default function Statements() {
                                                 ))}
                                             </tbody>
                                         </table>
-                                        <div className="mt-4 flex justify-end">
-                                            <button className="flex items-center gap-2 text-sm font-semibold text-blue-600 hover:text-blue-500">
-                                                <Download className="h-4 w-4" />
-                                                Download PDF (Coming Soon)
-                                                <ChevronRight className="h-4 w-4" />
+                                        <div className="mt-4 flex items-center justify-between">
+                                            {downloadStatus && downloadStatus.merchant === groupName && (
+                                                <div className={clsx(
+                                                    'flex items-center gap-2 text-sm',
+                                                    downloadStatus.status === 'success' ? 'text-green-600' : 'text-red-600'
+                                                )}>
+                                                    {downloadStatus.status === 'success' ? (
+                                                        <CheckCircle className="h-4 w-4" />
+                                                    ) : (
+                                                        <AlertCircle className="h-4 w-4" />
+                                                    )}
+                                                    {downloadStatus.message}
+                                                </div>
+                                            )}
+                                            <button
+                                                onClick={() => handleDownloadPdf(groupName)}
+                                                disabled={downloadingPdf === groupName}
+                                                className={clsx(
+                                                    'ml-auto flex items-center gap-2 text-sm font-semibold transition-colors',
+                                                    downloadingPdf === groupName
+                                                        ? 'text-gray-400 cursor-not-allowed'
+                                                        : 'text-blue-600 hover:text-blue-500'
+                                                )}
+                                            >
+                                                {downloadingPdf === groupName ? (
+                                                    <>
+                                                        <Loader2 className="h-4 w-4 animate-spin" />
+                                                        Generating PDF...
+                                                    </>
+                                                ) : (
+                                                    <>
+                                                        <Download className="h-4 w-4" />
+                                                        Download PDF
+                                                        <ChevronRight className="h-4 w-4" />
+                                                    </>
+                                                )}
                                             </button>
                                         </div>
                                     </div>

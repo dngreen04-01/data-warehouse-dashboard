@@ -57,7 +57,7 @@ class XeroCredentials:
     client_id: str
     client_secret: str
     tenant_id: str
-    scopes: str = "accounting.transactions.read accounting.contacts.read"
+    scopes: str = "accounting.transactions.read accounting.contacts.read accounting.settings.read"
 
 
 class XeroClient:
@@ -331,21 +331,24 @@ def ensure_customers(conn, invoice_df: pd.DataFrame, lines_df: pd.DataFrame) -> 
     # Get unique customer info for inserts/updates
     unique_customers = customers.drop_duplicates(subset=['customer_id'])[['customer_id', 'customer_name']]
 
-    # Insert missing customers
+    # Insert missing customers (batch operation for performance)
     missing = unique_customers[~unique_customers['customer_id'].isin(existing.keys())]
     if not missing.empty:
         logger.info(f"Auto-creating {len(missing)} customers from Xero")
-        with conn.cursor() as cur:
-            for _, row in missing.iterrows():
-                cust_type = customer_types.get(row['customer_id'], 'customer')
-                cur.execute(
-                    """
-                    INSERT INTO dw.dim_customer (customer_id, customer_name, customer_type)
-                    VALUES (%s, %s, %s)
-                    ON CONFLICT (customer_id) DO NOTHING
-                    """,
-                    (row['customer_id'], row['customer_name'] or 'Unknown Customer', cust_type)
-                )
+        # Prepare batch insert data
+        insert_data = missing.copy()
+        insert_data['customer_type'] = insert_data['customer_id'].map(
+            lambda x: customer_types.get(x, 'customer')
+        )
+        insert_data['customer_name'] = insert_data['customer_name'].fillna('Unknown Customer')
+
+        # Use batch upsert for performance (instead of row-by-row insert)
+        upsert_dataframe(
+            conn,
+            'dw.dim_customer',
+            insert_data[['customer_id', 'customer_name', 'customer_type']],
+            ('customer_id',)
+        )
 
     # Update existing customers if their type needs to change (e.g., customer becomes 'both')
     for customer_id, new_type in customer_types.items():
@@ -384,13 +387,17 @@ def map_product_references(conn, lines_df: pd.DataFrame) -> pd.DataFrame:
     code_map = {normalize_code(row[1]): row[0] for row in records if row[1]}
     name_map = {normalize_name(row[2]): row[0] for row in records if row[2]}
 
-    for idx, row in lines_df.iterrows():
-        code_key = normalize_code(row.get('product_code'))
-        name_key = normalize_name(row.get('item_name'))
-        if code_key and code_key in code_map:
-            lines_df.at[idx, 'product_id'] = code_map[code_key]
-        elif name_key and name_key in name_map:
-            lines_df.at[idx, 'product_id'] = name_map[name_key]
+    # Vectorized product ID lookup (instead of row-by-row iteration)
+    lines_df['_norm_code'] = lines_df['product_code'].apply(normalize_code)
+    lines_df['_norm_name'] = lines_df['item_name'].apply(normalize_name)
+
+    # Try matching by code first, then by name
+    lines_df['product_id'] = lines_df['_norm_code'].map(code_map)
+    name_matches = lines_df['product_id'].isna()
+    lines_df.loc[name_matches, 'product_id'] = lines_df.loc[name_matches, '_norm_name'].map(name_map)
+
+    # Cleanup temporary columns
+    lines_df.drop(columns=['_norm_code', '_norm_name'], inplace=True)
 
     missing_mask = lines_df['product_id'].isna()
 
@@ -405,53 +412,73 @@ def ensure_products(conn, lines_df: pd.DataFrame, missing_mask: pd.Series, norma
     if missing.empty:
         return lines_df
 
-    combos: dict[tuple[str, str], dict] = {}
-    for _, row in missing.iterrows():
-        code_key = normalize_code(row.get('product_code'))
-        name_key = normalize_name(row.get('item_name'))
-        combos.setdefault((code_key, name_key), {
-            'raw_code': row.get('product_code'),
-            'raw_name': row.get('item_name'),
-            'unit_price': row.get('unit_price'),
-            'line_amount': row.get('line_amount'),
-        })
+    # Vectorized combo extraction (instead of iterrows)
+    missing['_norm_code'] = missing['product_code'].apply(normalize_code)
+    missing['_norm_name'] = missing['item_name'].apply(normalize_name)
 
-    if not combos:
+    # Get unique combos using groupby (first occurrence wins)
+    combo_df = missing.groupby(['_norm_code', '_norm_name']).agg({
+        'product_code': 'first',
+        'item_name': 'first',
+        'unit_price': 'first',
+        'line_amount': 'first'
+    }).reset_index()
+
+    if combo_df.empty:
         return lines_df
 
     with conn.cursor() as cur:
         cur.execute("select coalesce(max(product_id), 0) from dw.dim_product")
         max_id = cur.fetchone()[0] or 0
 
-    new_records = []
-    mapping: dict[tuple[str, str], tuple[int, str]] = {}
-    for key, values in combos.items():
-        max_id += 1
-        product_code = (values.get('raw_code') or '').strip() or f"AUTO-{max_id}"
-        product_name = (values.get('raw_name') or '').strip() or f"Imported Product {max_id}"
-        new_records.append({
-            'product_id': max_id,
-            'product_code': product_code,
-            'item_name': product_name,
-            'item_description': values.get('raw_name') or '',
-            'product_group': 'Xero Imported',
-            'price': values.get('unit_price') or 0,
-            'gross_price': values.get('line_amount') or 0,
-        })
-        mapping[key] = (max_id, product_code)
+    # Vectorized new record creation
+    combo_df['product_id'] = range(max_id + 1, max_id + 1 + len(combo_df))
+    combo_df['final_code'] = combo_df.apply(
+        lambda r: (r['product_code'] or '').strip() or f"AUTO-{r['product_id']}", axis=1
+    )
+    combo_df['final_name'] = combo_df.apply(
+        lambda r: (r['item_name'] or '').strip() or f"Imported Product {r['product_id']}", axis=1
+    )
 
-    if new_records:
-        frame = pd.DataFrame(new_records)
-        upsert_dataframe(conn, 'dw.dim_product', frame, ('product_id',))
+    new_records = pd.DataFrame({
+        'product_id': combo_df['product_id'],
+        'product_code': combo_df['final_code'],
+        'item_name': combo_df['final_name'],
+        'item_description': combo_df['item_name'].fillna(''),
+        'product_group': 'Xero Imported',
+        'price': combo_df['unit_price'].fillna(0),
+        'gross_price': combo_df['line_amount'].fillna(0),
+    })
 
-    for idx, row in lines_df[missing_mask].iterrows():
-        code_key = normalize_code(row.get('product_code'))
-        name_key = normalize_name(row.get('item_name'))
-        match = mapping.get((code_key, name_key)) or mapping.get(('', name_key))
-        if match:
-            product_id, product_code = match
-            lines_df.at[idx, 'product_id'] = product_id
-            lines_df.at[idx, 'product_code'] = product_code
+    if not new_records.empty:
+        upsert_dataframe(conn, 'dw.dim_product', new_records, ('product_id',))
+
+    # Build mapping dictionary for vectorized lookup
+    mapping = {}
+    for _, row in combo_df.iterrows():
+        mapping[(row['_norm_code'], row['_norm_name'])] = (row['product_id'], row['final_code'])
+
+    # Vectorized update of lines_df using map (instead of iterrows)
+    lines_df['_norm_code'] = lines_df['product_code'].apply(normalize_code)
+    lines_df['_norm_name'] = lines_df['item_name'].apply(normalize_name)
+
+    def get_product_id(row):
+        if pd.notna(row['product_id']):
+            return row['product_id']
+        match = mapping.get((row['_norm_code'], row['_norm_name'])) or mapping.get(('', row['_norm_name']))
+        return match[0] if match else row['product_id']
+
+    def get_product_code(row):
+        if pd.notna(row['product_id']) and not missing_mask.loc[row.name]:
+            return row['product_code']
+        match = mapping.get((row['_norm_code'], row['_norm_name'])) or mapping.get(('', row['_norm_name']))
+        return match[1] if match else row['product_code']
+
+    lines_df.loc[missing_mask, 'product_id'] = lines_df[missing_mask].apply(get_product_id, axis=1)
+    lines_df.loc[missing_mask, 'product_code'] = lines_df[missing_mask].apply(get_product_code, axis=1)
+
+    # Cleanup
+    lines_df.drop(columns=['_norm_code', '_norm_name'], inplace=True, errors='ignore')
 
     return lines_df
 

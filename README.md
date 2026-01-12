@@ -66,10 +66,50 @@ npm run dev
 - Search by name, code, or group
 
 **Statements**
-- Outstanding invoices by merchant group
+- Outstanding invoices by merchant group (Farmlands, PGG Wrightson, Horticentre)
 - **Aging summary cards** (Current, 1-30, 31-60, 61-90, 90+ days)
 - Click aging buckets to filter
 - Search across merchant groups, customers, invoices
+- **PDF statement generation** via Download button (requires Statement API)
+
+## Statement PDF API
+
+The Statement API generates consolidated PDF statements for merchants. PDFs include invoices grouped by branch with running balances and aging summaries.
+
+### Running the API
+
+```bash
+# Activate virtual environment
+source .venv/bin/activate
+
+# Start the API server
+uvicorn api.main:app --port 8001
+
+# Or with auto-reload for development
+uvicorn api.main:app --reload --port 8001
+```
+
+### API Endpoints
+
+| Endpoint | Description |
+| --- | --- |
+| `GET /` | Health check |
+| `GET /api/merchants` | List all merchants with statement data |
+| `GET /api/statement/{merchant_group}/pdf` | Download PDF statement for a merchant |
+
+### Standalone PDF Generation
+
+Generate PDFs directly without the API:
+
+```bash
+# Generate all merchant statements
+python scripts/generate_statement_pdf.py
+
+# Generate for a specific merchant
+python scripts/generate_statement_pdf.py "Farmlands"
+```
+
+PDFs are saved to `output/statements/`.
 
 **Clusters**
 - Customer segmentation management

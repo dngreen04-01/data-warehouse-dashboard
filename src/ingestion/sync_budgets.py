@@ -87,19 +87,27 @@ def upsert_budgets(conn, df):
         
     logger.info(f"Upserting {len(df)} budget lines (aggregated)")
     
+    import uuid
+
     with conn.cursor() as cur:
         # Full refresh for budgets
-        cur.execute("TRUNCATE TABLE dw.fct_budget") 
-        
+        cur.execute("TRUNCATE TABLE dw.fct_budget")
+
+        # Batch insert using executemany (instead of row-by-row)
         insert_query = """
             INSERT INTO dw.fct_budget (budget_id, month_date, amount, budget_name)
             VALUES (%s, %s, %s, %s)
         """
-        
-        import uuid
-        for index, row in df.iterrows():
-            cur.execute(insert_query, (str(uuid.uuid4()), row['period_date'], row['amount'], row['budget_name']))
-            
+
+        # Prepare batch data as list of tuples
+        insert_data = [
+            (str(uuid.uuid4()), row['period_date'], row['amount'], row['budget_name'])
+            for _, row in df.iterrows()
+        ]
+
+        # Use executemany for batch insert (significantly faster)
+        cur.executemany(insert_query, insert_data)
+
     conn.commit()
 
 def get_revenue_account_ids(client: XeroClient) -> set:

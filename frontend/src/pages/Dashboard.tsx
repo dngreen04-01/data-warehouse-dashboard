@@ -1,16 +1,17 @@
 import { useEffect, useState, useMemo, useRef, useCallback } from 'react';
 import { supabase } from '@/lib/supabase';
-import { Loader2, TrendingUp, TrendingDown, DollarSign, Package, Filter, ChevronUp, ChevronDown, ArrowUpDown, Download, Image } from 'lucide-react';
+import { Loader2, TrendingUp, TrendingDown, DollarSign, Package, Filter, ChevronUp, ChevronDown, ArrowUpDown, Download, Image, AlertCircle, RefreshCw, ChevronLeft, ChevronRight } from 'lucide-react';
 import {
     XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
     Bar, Legend, ComposedChart, Line
 } from 'recharts';
-import { format, startOfYear, endOfDay } from 'date-fns';
+import { format, startOfYear, endOfDay, subWeeks, startOfWeek, endOfWeek, startOfMonth, differenceInDays } from 'date-fns';
 import html2canvas from 'html2canvas';
 
 type ComparisonPeriod = 'last_year' | 'last_last_year';
 type SortField = 'revenue' | 'ly_pct_change' | 'ly_delta';
 type SortDirection = 'asc' | 'desc';
+type ChartGranularity = 'day' | 'week' | 'month';
 
 interface BreakdownItem {
     label: string;
@@ -23,12 +24,17 @@ interface BreakdownItem {
     lly_pct_change: number;
 }
 
+const PAGE_SIZE = 50;
+
 export default function Dashboard() {
     const [loading, setLoading] = useState(true);
+    const [error, setError] = useState<string | null>(null);
     const [comparisonChartData, setComparisonChartData] = useState<any[]>([]);
     const [metrics, setMetrics] = useState<any>({});
     const [metricsLLY, setMetricsLLY] = useState<any>({});
     const [breakdown, setBreakdown] = useState<BreakdownItem[]>([]);
+    const [granularity, setGranularity] = useState<ChartGranularity>('month');
+    const [currentPage, setCurrentPage] = useState(1);
 
     // Filters
     const [dateRange, setDateRange] = useState({
@@ -42,6 +48,7 @@ export default function Dashboard() {
         customer_cluster: [] as string[],
         product_cluster: [] as string[]
     });
+    const [selectedPreset, setSelectedPreset] = useState('year_to_date');
     const [options, setOptions] = useState<any>({});
     const [breakdownDim, setBreakdownDim] = useState('product');
     const [showFilters, setShowFilters] = useState(false);
@@ -83,8 +90,42 @@ export default function Dashboard() {
         };
     };
 
+    const applyPreset = (preset: string) => {
+        const today = new Date();
+        let start = new Date();
+        let end = new Date();
+
+        switch (preset) {
+            case 'last_week':
+                // Last week (Monday - Sunday)
+                const lastWeek = subWeeks(today, 1);
+                start = startOfWeek(lastWeek, { weekStartsOn: 1 });
+                end = endOfWeek(lastWeek, { weekStartsOn: 1 });
+                break;
+            case 'month_to_date':
+                start = startOfMonth(today);
+                end = today;
+                break;
+            case 'year_to_date':
+                start = startOfYear(today);
+                end = today;
+                break;
+            case 'custom':
+                return; // Do nothing for custom
+            default:
+                break;
+        }
+
+        setDateRange({
+            start: format(start, 'yyyy-MM-dd'),
+            end: format(end, 'yyyy-MM-dd')
+        });
+        setSelectedPreset(preset);
+    };
+
     const fetchData = async () => {
         setLoading(true);
+        setError(null);
         try {
             const rpcParams = {
                 p_start_date: dateRange.start,
@@ -95,6 +136,17 @@ export default function Dashboard() {
                 p_cluster: filters.customer_cluster.length ? filters.customer_cluster : null,
                 p_product_cluster: filters.product_cluster.length ? filters.product_cluster : null,
             };
+
+            // Determine granularity based on date range duration
+            const diffDays = differenceInDays(new Date(dateRange.end), new Date(dateRange.start));
+            let newGranularity: ChartGranularity = 'month';
+            if (diffDays <= 14) {
+                newGranularity = 'day';
+            } else if (diffDays <= 60) {
+                newGranularity = 'week';
+            }
+            setGranularity(newGranularity);
+
 
             // 1. Sales Overview (Current Period)
             const { data: currentData } = await supabase.rpc('get_sales_overview', rpcParams);
@@ -136,38 +188,51 @@ export default function Dashboard() {
                 previous_qty: llyQty
             });
 
-            // 3. Build monthly comparison chart data
-            const monthlyMap = new Map();
+            // 3. Build comparison chart data with dynamic granularity
+            const chartMap = new Map();
+
+            const getChartKey = (dateStr: string, gran: ChartGranularity) => {
+                const d = new Date(dateStr);
+                if (gran === 'day') return format(d, 'yyyy-MM-dd');
+                if (gran === 'week') return format(startOfWeek(d, { weekStartsOn: 1 }), 'yyyy-MM-dd');
+                return format(startOfMonth(d), 'yyyy-MM-01');
+            };
 
             (currentData || []).forEach((item: any) => {
-                const monthKey = format(new Date(item.invoice_date), 'yyyy-MM-01');
-                if (!monthlyMap.has(monthKey)) {
-                    monthlyMap.set(monthKey, { month_date: monthKey, current_revenue: 0, ly_revenue: 0, lly_revenue: 0 });
+                const key = getChartKey(item.invoice_date, newGranularity);
+                if (!chartMap.has(key)) {
+                    chartMap.set(key, { date_key: key, current_revenue: 0, ly_revenue: 0, lly_revenue: 0 });
                 }
-                monthlyMap.get(monthKey).current_revenue += item.revenue || 0;
+                chartMap.get(key).current_revenue += item.revenue || 0;
             });
 
             (lyData || []).forEach((item: any) => {
                 const d = new Date(item.invoice_date);
                 d.setFullYear(d.getFullYear() + 1);
-                const monthKey = format(d, 'yyyy-MM-01');
-                if (!monthlyMap.has(monthKey)) {
-                    monthlyMap.set(monthKey, { month_date: monthKey, current_revenue: 0, ly_revenue: 0, lly_revenue: 0 });
+                // Adjust for week alignment if needed, but simple year shift usually suffices for visual comparison
+                // For strict day-of-week alignment we might need more complex logic, but date-based shift is standard here.
+
+                const key = getChartKey(format(d, 'yyyy-MM-dd'), newGranularity);
+
+                if (!chartMap.has(key)) {
+                    chartMap.set(key, { date_key: key, current_revenue: 0, ly_revenue: 0, lly_revenue: 0 });
                 }
-                monthlyMap.get(monthKey).ly_revenue += item.revenue || 0;
+                chartMap.get(key).ly_revenue += item.revenue || 0;
             });
 
             (llyData || []).forEach((item: any) => {
                 const d = new Date(item.invoice_date);
                 d.setFullYear(d.getFullYear() + 2);
-                const monthKey = format(d, 'yyyy-MM-01');
-                if (!monthlyMap.has(monthKey)) {
-                    monthlyMap.set(monthKey, { month_date: monthKey, current_revenue: 0, ly_revenue: 0, lly_revenue: 0 });
+
+                const key = getChartKey(format(d, 'yyyy-MM-dd'), newGranularity);
+
+                if (!chartMap.has(key)) {
+                    chartMap.set(key, { date_key: key, current_revenue: 0, ly_revenue: 0, lly_revenue: 0 });
                 }
-                monthlyMap.get(monthKey).lly_revenue += item.revenue || 0;
+                chartMap.get(key).lly_revenue += item.revenue || 0;
             });
 
-            setComparisonChartData(Array.from(monthlyMap.values()).sort((a, b) => a.month_date.localeCompare(b.month_date)));
+            setComparisonChartData(Array.from(chartMap.values()).sort((a, b) => a.date_key.localeCompare(b.date_key)));
 
             // 4. Breakdown - Fetch for current, LY, and LLY periods
             const [currentBreakdown, lyBreakdown, llyBreakdown] = await Promise.all([
@@ -260,8 +325,9 @@ export default function Dashboard() {
 
             setBreakdown(Array.from(breakdownMap.values()));
 
-        } catch (error) {
-            console.error('Error fetching dashboard data:', error);
+        } catch (err) {
+            console.error('Error fetching dashboard data:', err);
+            setError(err instanceof Error ? err.message : 'Failed to load dashboard data. Please try again.');
         } finally {
             setLoading(false);
         }
@@ -282,6 +348,11 @@ export default function Dashboard() {
     const formatDelta = (val: number) => `${val >= 0 ? '+' : ''}${formatCurrency(val)}`;
     const formatPct = (val: number) => `${val >= 0 ? '+' : ''}${val.toFixed(0)}%`;
 
+    // Reset page when filters change
+    useEffect(() => {
+        setCurrentPage(1);
+    }, [breakdown, sortField, sortDirection]);
+
     // Sorted breakdown data
     const sortedBreakdown = useMemo(() => {
         return [...breakdown].sort((a, b) => {
@@ -289,6 +360,13 @@ export default function Dashboard() {
             return multiplier * (a[sortField] - b[sortField]);
         });
     }, [breakdown, sortField, sortDirection]);
+
+    // Paginated breakdown data
+    const totalPages = Math.ceil(sortedBreakdown.length / PAGE_SIZE);
+    const paginatedBreakdown = useMemo(() => {
+        const start = (currentPage - 1) * PAGE_SIZE;
+        return sortedBreakdown.slice(start, start + PAGE_SIZE);
+    }, [sortedBreakdown, currentPage]);
 
     // Export table to CSV
     const exportTableToCSV = useCallback(() => {
@@ -382,17 +460,34 @@ export default function Dashboard() {
                         Filters
                     </button>
                     <div className="flex items-center gap-2 rounded-md border border-gray-300 bg-white px-3 py-2">
+                        <select
+                            value={selectedPreset}
+                            onChange={(e) => applyPreset(e.target.value)}
+                            className="border-none bg-transparent p-0 text-sm font-medium text-gray-700 focus:ring-0 cursor-pointer mr-2"
+                        >
+                            <option value="last_week">Last Week</option>
+                            <option value="month_to_date">Month to Date</option>
+                            <option value="year_to_date">Year to Date</option>
+                            <option value="custom">Custom</option>
+                        </select>
+                        <div className="h-4 w-px bg-gray-300 mx-1"></div>
                         <input
                             type="date"
                             value={dateRange.start}
-                            onChange={(e) => setDateRange(prev => ({ ...prev, start: e.target.value }))}
+                            onChange={(e) => {
+                                setDateRange(prev => ({ ...prev, start: e.target.value }));
+                                setSelectedPreset('custom');
+                            }}
                             className="border-none p-0 text-sm focus:ring-0"
                         />
                         <span className="text-gray-400">-</span>
                         <input
                             type="date"
                             value={dateRange.end}
-                            onChange={(e) => setDateRange(prev => ({ ...prev, end: e.target.value }))}
+                            onChange={(e) => {
+                                setDateRange(prev => ({ ...prev, end: e.target.value }));
+                                setSelectedPreset('custom');
+                            }}
                             className="border-none p-0 text-sm focus:ring-0"
                         />
                     </div>
@@ -418,11 +513,33 @@ export default function Dashboard() {
                 </div>
             )}
 
+            {/* Error Banner */}
+            {error && (
+                <div className="rounded-xl border border-red-200 bg-red-50 p-4 shadow-sm" role="alert">
+                    <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-3">
+                            <AlertCircle className="h-5 w-5 text-red-600" />
+                            <div>
+                                <p className="font-medium text-red-800">Failed to load dashboard data</p>
+                                <p className="text-sm text-red-600">{error}</p>
+                            </div>
+                        </div>
+                        <button
+                            onClick={() => fetchData()}
+                            className="flex items-center gap-2 rounded-lg bg-red-100 px-3 py-2 text-sm font-medium text-red-700 hover:bg-red-200 transition-colors"
+                        >
+                            <RefreshCw className="h-4 w-4" />
+                            Retry
+                        </button>
+                    </div>
+                </div>
+            )}
+
             {loading ? (
                 <div className="flex h-96 items-center justify-center">
                     <Loader2 className="h-10 w-10 animate-spin text-blue-600" />
                 </div>
-            ) : (
+            ) : error ? null : (
                 <>
                     {/* KPIs */}
                     <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
@@ -633,7 +750,18 @@ export default function Dashboard() {
                                         });
                                     })()}>
                                         <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                                        <XAxis dataKey="month_date" tickFormatter={(t) => format(new Date(t), 'MMM yy')} fontSize={12} tickLine={false} axisLine={false} />
+                                        <XAxis
+                                            dataKey="date_key"
+                                            tickFormatter={(t) => {
+                                                const d = new Date(t);
+                                                if (granularity === 'day') return format(d, 'd MMM');
+                                                if (granularity === 'week') return format(d, 'd MMM');
+                                                return format(d, 'MMM yy');
+                                            }}
+                                            fontSize={12}
+                                            tickLine={false}
+                                            axisLine={false}
+                                        />
                                         <YAxis tickFormatter={(v) => `$${v / 1000}k`} fontSize={12} tickLine={false} axisLine={false} />
                                         <Tooltip formatter={(v: number) => formatCurrency(v)} />
                                         <Legend />
@@ -659,9 +787,9 @@ export default function Dashboard() {
                                 <div className="flex items-center gap-3">
                                     <h3 className="text-lg font-semibold text-gray-900">Performance by {
                                         breakdownDim === 'product_cluster' ? 'Product Cluster' :
-                                        breakdownDim === 'customer_cluster' ? 'Customer Cluster' :
-                                        breakdownDim === 'merchant_group' ? 'Merchant' :
-                                        breakdownDim.charAt(0).toUpperCase() + breakdownDim.slice(1)
+                                            breakdownDim === 'customer_cluster' ? 'Customer Cluster' :
+                                                breakdownDim === 'merchant_group' ? 'Merchant' :
+                                                    breakdownDim.charAt(0).toUpperCase() + breakdownDim.slice(1)
                                     }</h3>
                                     <button
                                         onClick={exportTableToCSV}
@@ -733,7 +861,7 @@ export default function Dashboard() {
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-gray-200">
-                                    {sortedBreakdown.map((item, idx) => (
+                                    {paginatedBreakdown.map((item, idx) => (
                                         <tr key={idx} className="hover:bg-gray-50 transition-colors">
                                             <td className="px-6 py-4 text-sm font-medium text-gray-900" title={item.label}>
                                                 <div className="truncate">{item.label}</div>
@@ -745,11 +873,10 @@ export default function Dashboard() {
                                                 {formatCurrency(item.ly_revenue)}
                                             </td>
                                             <td className="px-6 py-4 text-sm text-right">
-                                                <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${
-                                                    item.ly_pct_change >= 0
-                                                        ? 'bg-green-100 text-green-800'
-                                                        : 'bg-red-100 text-red-800'
-                                                }`}>
+                                                <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${item.ly_pct_change >= 0
+                                                    ? 'bg-green-100 text-green-800'
+                                                    : 'bg-red-100 text-red-800'
+                                                    }`}>
                                                     {item.ly_pct_change >= 0 ? (
                                                         <TrendingUp className="h-3 w-3" />
                                                     ) : (
@@ -758,20 +885,18 @@ export default function Dashboard() {
                                                     {formatPct(item.ly_pct_change)}
                                                 </span>
                                             </td>
-                                            <td className={`px-6 py-4 text-sm text-right font-medium ${
-                                                item.ly_delta >= 0 ? 'text-green-600' : 'text-red-600'
-                                            }`}>
+                                            <td className={`px-6 py-4 text-sm text-right font-medium ${item.ly_delta >= 0 ? 'text-green-600' : 'text-red-600'
+                                                }`}>
                                                 {formatDelta(item.ly_delta)}
                                             </td>
                                             <td className="px-6 py-4 text-sm text-right text-gray-600">
                                                 {formatCurrency(item.lly_revenue)}
                                             </td>
                                             <td className="px-6 py-4 text-sm text-right">
-                                                <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${
-                                                    item.lly_pct_change >= 0
-                                                        ? 'bg-green-100 text-green-800'
-                                                        : 'bg-red-100 text-red-800'
-                                                }`}>
+                                                <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${item.lly_pct_change >= 0
+                                                    ? 'bg-green-100 text-green-800'
+                                                    : 'bg-red-100 text-red-800'
+                                                    }`}>
                                                     {item.lly_pct_change >= 0 ? (
                                                         <TrendingUp className="h-3 w-3" />
                                                     ) : (
@@ -780,9 +905,8 @@ export default function Dashboard() {
                                                     {formatPct(item.lly_pct_change)}
                                                 </span>
                                             </td>
-                                            <td className={`px-6 py-4 text-sm text-right font-medium ${
-                                                item.lly_delta >= 0 ? 'text-green-600' : 'text-red-600'
-                                            }`}>
+                                            <td className={`px-6 py-4 text-sm text-right font-medium ${item.lly_delta >= 0 ? 'text-green-600' : 'text-red-600'
+                                                }`}>
                                                 {formatDelta(item.lly_delta)}
                                             </td>
                                         </tr>
@@ -794,6 +918,38 @@ export default function Dashboard() {
                         {sortedBreakdown.length === 0 && (
                             <div className="p-8 text-center text-gray-500">
                                 No data available for the selected filters and date range.
+                            </div>
+                        )}
+
+                        {/* Pagination Controls */}
+                        {totalPages > 1 && (
+                            <div className="flex items-center justify-between border-t border-gray-200 px-6 py-4">
+                                <div className="text-sm text-gray-500">
+                                    Showing {((currentPage - 1) * PAGE_SIZE) + 1} - {Math.min(currentPage * PAGE_SIZE, sortedBreakdown.length)} of {sortedBreakdown.length} items
+                                </div>
+                                <div className="flex items-center gap-2">
+                                    <button
+                                        onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                                        disabled={currentPage === 1}
+                                        className="flex items-center gap-1 rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                                        aria-label="Previous page"
+                                    >
+                                        <ChevronLeft className="h-4 w-4" />
+                                        Previous
+                                    </button>
+                                    <span className="text-sm text-gray-600">
+                                        Page {currentPage} of {totalPages}
+                                    </span>
+                                    <button
+                                        onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                                        disabled={currentPage === totalPages}
+                                        className="flex items-center gap-1 rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                                        aria-label="Next page"
+                                    >
+                                        Next
+                                        <ChevronRight className="h-4 w-4" />
+                                    </button>
+                                </div>
                             </div>
                         )}
                     </div>
@@ -901,9 +1057,8 @@ function FilterGroup({ title, options, selected, onToggle }: any) {
                                         onToggle(opt);
                                         setSearch('');
                                     }}
-                                    className={`w-full px-3 py-2 text-left text-sm hover:bg-gray-50 flex items-center justify-between ${
-                                        selected.includes(opt) ? 'bg-blue-50 text-blue-700' : 'text-gray-700'
-                                    }`}
+                                    className={`w-full px-3 py-2 text-left text-sm hover:bg-gray-50 flex items-center justify-between ${selected.includes(opt) ? 'bg-blue-50 text-blue-700' : 'text-gray-700'
+                                        }`}
                                 >
                                     <span className="truncate">{opt}</span>
                                     {selected.includes(opt) && (

@@ -420,7 +420,7 @@ def fetch_statement_data(parent_customer: str) -> pd.DataFrame:
 
     Returns:
         DataFrame with statement details including merchant_group, customer_name,
-        bill_to, invoice details, and aging information.
+        bill_to, head_office_address, invoice details, and aging information.
 
     Raises:
         RuntimeError: If database connection fails.
@@ -430,6 +430,7 @@ def fetch_statement_data(parent_customer: str) -> pd.DataFrame:
             merchant_group,
             customer_name,
             bill_to,
+            head_office_address,
             invoice_number,
             invoice_date,
             due_date,
@@ -501,4 +502,3 @@ def fetch_historical_customers() -> pd.DataFrame:
         order by customer_name
     """
     return _read_dataframe(query)
-

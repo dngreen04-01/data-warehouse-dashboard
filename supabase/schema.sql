@@ -33,6 +33,18 @@ begin
 
     if not exists (
         select 1 from information_schema.tables
+        where table_schema = 'dw' and table_name = 'dim_merchant_group'
+    ) then
+        create table dw.dim_merchant_group (
+            merchant_group text primary key,
+            bill_to text,
+            created_at timestamptz default timezone('utc', now()),
+            updated_at timestamptz default timezone('utc', now())
+        );
+    end if;
+
+    if not exists (
+        select 1 from information_schema.tables
         where table_schema = 'dw' and table_name = 'dim_customer_cluster'
     ) then
         create table dw.dim_customer_cluster (

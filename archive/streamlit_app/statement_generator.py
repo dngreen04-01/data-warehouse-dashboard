@@ -66,6 +66,7 @@ def generate_statement_pdf(statement_data: pd.DataFrame) -> bytes:
             - merchant_group: Parent customer name
             - customer_name: Branch/child customer name
             - bill_to: Billing address
+            - head_office_address: Merchant group billing address
             - invoice_number: Invoice identifier
             - invoice_date: Date of invoice
             - outstanding_amount: Amount due
@@ -82,6 +83,7 @@ def generate_statement_pdf(statement_data: pd.DataFrame) -> bytes:
         "merchant_group",
         "customer_name",
         "bill_to",
+        "head_office_address",
         "invoice_number",
         "invoice_date",
         "outstanding_amount",
@@ -103,11 +105,13 @@ def generate_statement_pdf(statement_data: pd.DataFrame) -> bytes:
 
         # Customer details
         parent_customer = str(statement_data["merchant_group"].iloc[0])
-        bill_to = str(statement_data["bill_to"].iloc[0] or "")
+        head_office_address = str(statement_data["head_office_address"].iloc[0] or "")
+        if not head_office_address:
+            head_office_address = str(statement_data["bill_to"].iloc[0] or "")
         pdf.set_font("Helvetica", "", 12)
         pdf.cell(0, 10, f"To: {parent_customer}", border=0, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
-        if bill_to:
-            pdf.multi_cell(0, 10, bill_to)
+        if head_office_address:
+            pdf.multi_cell(0, 10, head_office_address)
         pdf.ln(10)
 
         # Statement table header
