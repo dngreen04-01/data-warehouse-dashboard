@@ -1,7 +1,7 @@
 import { useEffect, useState, useMemo } from 'react';
 import {
     Loader2, Factory, Package, AlertTriangle, CheckCircle2,
-    ArrowRight, History, ExternalLink, Plus, Minus
+    ArrowRight, History, Plus, Minus
 } from 'lucide-react';
 import clsx from 'clsx';
 
@@ -232,7 +232,7 @@ export default function Manufacturing() {
                 throw new Error(data.detail || 'Conversion failed');
             }
 
-            const result = await response.json();
+            await response.json();
             setSuccess(`Conversion completed! ${calculations.kgConsumed}kg consumed, Xero updated.`);
 
             // Reset form
@@ -442,9 +442,6 @@ export default function Manufacturing() {
                             {finishedGoods.length > 0 ? (
                                 <div className="space-y-3">
                                     {finishedGoods.map(fg => {
-                                        const product = compatibleFinishedProducts.find(
-                                            p => p.product_code === fg.product_code
-                                        );
                                         return (
                                             <div
                                                 key={fg.product_code}

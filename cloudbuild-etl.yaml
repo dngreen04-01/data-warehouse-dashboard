@@ -1,0 +1,15 @@
+steps:
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'build'
+      - '-t'
+      - '${_REGION}-docker.pkg.dev/${PROJECT_ID}/data-warehouse/etl:latest'
+      - '-f'
+      - 'Dockerfile.etl'
+      - '.'
+
+images:
+  - '${_REGION}-docker.pkg.dev/${PROJECT_ID}/data-warehouse/etl:latest'
+
+substitutions:
+  _REGION: australia-southeast1

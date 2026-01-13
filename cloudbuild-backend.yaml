@@ -1,0 +1,15 @@
+steps:
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'build'
+      - '-f'
+      - 'Dockerfile.backend'
+      - '-t'
+      - '${_IMAGE_TAG}'
+      - '.'
+
+images:
+  - '${_IMAGE_TAG}'
+
+substitutions:
+  _IMAGE_TAG: ''

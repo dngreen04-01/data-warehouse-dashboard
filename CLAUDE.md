@@ -1,5 +1,9 @@
 # Data Warehouse Project Guidelines
 
+## Cloud Run Deployment
+
+See [CLOUD_RUN_DEPLOYMENT.md](CLOUD_RUN_DEPLOYMENT.md) for the complete deployment plan to Google Cloud Run. This is a multi-session project with 6 phases - check the Phase Tracker in that file for current progress.
+
 ## Database Schema
 
 **IMPORTANT**: All data warehouse tables are in the `dw` schema, NOT the public schema.
