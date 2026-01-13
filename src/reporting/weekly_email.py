@@ -14,7 +14,7 @@ import psycopg
 from psycopg.rows import dict_row
 from dotenv import load_dotenv
 from sendgrid import SendGridAPIClient
-from sendgrid.helpers.mail import Mail, Attachment, FileContent, FileName, FileType, Disposition
+from sendgrid.helpers.mail import Mail, Attachment, FileContent, FileName, FileType, Disposition, ReplyTo
 import google.generativeai as genai
 
 
@@ -252,8 +252,11 @@ def send_email_via_sendgrid(html_content, recipient, image_data=None):
         subject='Weekly Sales Performance Report',
         html_content=html_content
     )
-    # Set reply-to address for CRM parsing
-    message.reply_to = 'crm@parse.finalmile.co.nz'
+    # Set reply-to addresses (Damien gets a copy, CRM parser processes it)
+    message.reply_to_list = [
+        ReplyTo(email='damien.green@brands.co.nz', name='Damien Green'),
+        ReplyTo(email='crm@parse.finalmile.co.nz', name='CRM System'),
+    ]
     
     if image_data:
         attachment = Attachment()

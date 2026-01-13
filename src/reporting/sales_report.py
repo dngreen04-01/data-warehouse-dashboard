@@ -7,7 +7,7 @@ import psycopg
 from psycopg.rows import dict_row
 from dotenv import load_dotenv
 from sendgrid import SendGridAPIClient
-from sendgrid.helpers.mail import Mail
+from sendgrid.helpers.mail import Mail, ReplyTo
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -207,6 +207,11 @@ def send_email(recipient, subject, html_content, api_key):
         subject=subject,
         html_content=html_content
     )
+    # Set reply-to addresses (CRM parser processes it, Damien gets a copy)
+    message.reply_to_list = [
+        ReplyTo(email='crm@parse.finalmile.co.nz', name='CRM System'),
+        ReplyTo(email='damien.green@brands.co.nz', name='Damien Green'),
+    ]
     try:
         sg = SendGridAPIClient(api_key)
         response = sg.send(message)

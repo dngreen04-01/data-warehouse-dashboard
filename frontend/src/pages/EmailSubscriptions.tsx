@@ -2,6 +2,8 @@ import { useEffect, useState, useMemo } from 'react';
 import { supabase } from '@/lib/supabase';
 import { Loader2, Plus, Trash2, Mail, Send, Calendar } from 'lucide-react';
 
+const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8001';
+
 interface Subscription {
     id: string;
     email: string;
@@ -135,7 +137,7 @@ export default function EmailSubscriptions() {
 
     async function triggerQueueProcessing() {
         try {
-            await fetch('http://localhost:8000/api/process-report-queue', { method: 'POST' });
+            await fetch(`${API_BASE}/api/process-report-queue`, { method: 'POST' });
         } catch (error) {
             console.warn('Could not trigger immediate processing:', error);
         }
