@@ -6,12 +6,12 @@ import {
     LogOut,
     User as UserIcon,
     Users,
+    UserPlus,
     FileText,
     Package,
     UserCircle,
     ChevronRight,
     BarChart3,
-    AlertTriangle,
     GitMerge,
     MessageSquare,
     Mail,
@@ -33,14 +33,11 @@ const navigation = [
     { name: 'Email Reports', href: '/email-subscriptions', icon: Mail, description: 'Manage weekly reports' },
 ];
 
-const debugNavigation = [
-    { name: 'Invoice Debug', href: '/debug/invoices', icon: AlertTriangle, description: 'Diagnose revenue issues' },
-];
 
 export default function AppLayout({ children }: { children: ReactNode }) {
     const [sidebarOpen, setSidebarOpen] = useState(false);
     const location = useLocation();
-    const { signOut, user } = useAuth();
+    const { signOut, user, isSuperUser, role } = useAuth();
 
     return (
         <div className="min-h-screen bg-gray-50">
@@ -128,51 +125,45 @@ export default function AppLayout({ children }: { children: ReactNode }) {
                         })}
                     </div>
 
-                    {/* Debug Section */}
-                    <div className="mt-6 pt-6 border-t border-gray-200">
-                        <p className="px-3 mb-2 text-xs font-semibold text-gray-400 uppercase tracking-wider">
-                            Debug Tools
-                        </p>
-                        <div className="space-y-1">
-                            {debugNavigation.map((item) => {
-                                const isActive = location.pathname === item.href;
-                                return (
-                                    <Link
-                                        key={item.name}
-                                        to={item.href}
-                                        onClick={() => setSidebarOpen(false)}
-                                        className={clsx(
-                                            'group flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-200',
-                                            isActive
-                                                ? 'bg-amber-50 text-amber-700 shadow-sm'
-                                                : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
-                                        )}
-                                    >
-                                        <div className={clsx(
-                                            'flex h-9 w-9 items-center justify-center rounded-lg transition-colors',
-                                            isActive
-                                                ? 'bg-amber-100 text-amber-700'
-                                                : 'bg-gray-100 text-gray-500 group-hover:bg-amber-50 group-hover:text-amber-600'
-                                        )}>
-                                            <item.icon className="h-5 w-5" />
-                                        </div>
-                                        <div className="flex-1">
-                                            <span className="block">{item.name}</span>
-                                            <span className={clsx(
-                                                'text-xs',
-                                                isActive ? 'text-amber-600' : 'text-gray-400'
-                                            )}>
-                                                {item.description}
-                                            </span>
-                                        </div>
-                                        {isActive && (
-                                            <ChevronRight className="h-4 w-4 text-amber-500" />
-                                        )}
-                                    </Link>
-                                );
-                            })}
+                    {/* Admin section - only visible to super_user */}
+                    {isSuperUser && (
+                        <div className="mt-6 pt-6 border-t border-gray-100">
+                            <p className="px-3 mb-2 text-xs font-semibold text-gray-400 uppercase tracking-wider">
+                                Admin
+                            </p>
+                            <Link
+                                to="/users"
+                                onClick={() => setSidebarOpen(false)}
+                                className={clsx(
+                                    'group flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-200',
+                                    location.pathname === '/users'
+                                        ? 'bg-purple-50 text-purple-700 shadow-sm'
+                                        : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
+                                )}
+                            >
+                                <div className={clsx(
+                                    'flex h-9 w-9 items-center justify-center rounded-lg transition-colors',
+                                    location.pathname === '/users'
+                                        ? 'bg-purple-100 text-purple-700'
+                                        : 'bg-gray-100 text-gray-500 group-hover:bg-gray-200 group-hover:text-gray-700'
+                                )}>
+                                    <UserPlus className="h-5 w-5" />
+                                </div>
+                                <div className="flex-1">
+                                    <span className="block">User Management</span>
+                                    <span className={clsx(
+                                        'text-xs',
+                                        location.pathname === '/users' ? 'text-purple-600' : 'text-gray-400'
+                                    )}>
+                                        Invite & manage users
+                                    </span>
+                                </div>
+                                {location.pathname === '/users' && (
+                                    <ChevronRight className="h-4 w-4 text-purple-500" />
+                                )}
+                            </Link>
                         </div>
-                    </div>
+                    )}
                 </nav>
 
                 {/* User section */}
@@ -185,9 +176,20 @@ export default function AppLayout({ children }: { children: ReactNode }) {
                             <p className="text-sm font-medium text-gray-900 truncate">
                                 {user?.email?.split('@')[0] || 'User'}
                             </p>
-                            <p className="text-xs text-gray-500 truncate">
-                                {user?.email || 'user@example.com'}
-                            </p>
+                            <div className="flex items-center gap-2">
+                                {role && (
+                                    <span className={clsx(
+                                        'px-1.5 py-0.5 rounded text-[10px] font-medium',
+                                        role === 'super_user'
+                                            ? 'bg-purple-100 text-purple-700'
+                                            : role === 'administration'
+                                            ? 'bg-blue-100 text-blue-700'
+                                            : 'bg-green-100 text-green-700'
+                                    )}>
+                                        {role === 'super_user' ? 'Super User' : role === 'administration' ? 'Admin' : 'Sales'}
+                                    </span>
+                                )}
+                            </div>
                         </div>
                     </div>
                     <button

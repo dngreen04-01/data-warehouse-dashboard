@@ -14,12 +14,15 @@ from contextlib import asynccontextmanager
 import psycopg
 from psycopg.rows import dict_row
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException, Query, BackgroundTasks
+from fastapi import FastAPI, HTTPException, Query, BackgroundTasks, Depends
 from pydantic import BaseModel
 from typing import List
 from datetime import date
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
+import httpx
+
+from api.auth import get_current_user, require_auth, UserClaims
 
 # Import PDF generator
 import sys
@@ -675,6 +678,240 @@ async def calculate_yield_estimate(
         "material_type": config["material_type"],
         "compatible_products": config["converts_to"]
     }
+
+
+# =============================================================================
+# User Management Endpoints
+# =============================================================================
+
+class InviteRequest(BaseModel):
+    email: str
+    role_id: str
+
+
+@app.get("/api/users/me")
+async def get_current_user_info(
+    current_user: UserClaims = Depends(require_auth)
+):
+    """Get current user's role and permissions."""
+    return {
+        "user_id": current_user.sub,
+        "email": current_user.email,
+        "role": current_user.user_role,
+        "permissions": current_user.permissions
+    }
+
+
+@app.get("/api/users")
+async def list_users(
+    current_user: UserClaims = Depends(require_auth)
+):
+    """List all users with their roles. Requires super_user or administration role."""
+    print(f"[DEBUG] /api/users called by user: {current_user.email}, role: {current_user.user_role}")
+
+    if current_user.user_role not in ['super_user', 'administration']:
+        raise HTTPException(status_code=403, detail="Permission denied")
+
+    try:
+        with get_db_connection() as conn:
+            with conn.cursor(row_factory=dict_row) as cur:
+                cur.execute("""
+                    SELECT
+                        u.id as user_id,
+                        u.email,
+                        ur.role_id,
+                        r.role_name,
+                        u.last_sign_in_at,
+                        u.created_at
+                    FROM auth.users u
+                    LEFT JOIN dw.user_roles ur ON u.id = ur.user_id
+                    LEFT JOIN dw.app_roles r ON ur.role_id = r.role_id
+                    ORDER BY u.created_at DESC
+                """)
+                users = cur.fetchall()
+
+        return {"users": users}
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/roles")
+async def list_roles(
+    current_user: UserClaims = Depends(require_auth)
+):
+    """List available roles."""
+    print(f"[DEBUG] /api/roles called by user: {current_user.email}, role: {current_user.user_role}")
+
+    try:
+        with get_db_connection() as conn:
+            with conn.cursor(row_factory=dict_row) as cur:
+                cur.execute("""
+                    SELECT role_id, role_name, description
+                    FROM dw.app_roles
+                    ORDER BY
+                        CASE role_id
+                            WHEN 'super_user' THEN 1
+                            WHEN 'administration' THEN 2
+                            WHEN 'sales' THEN 3
+                            ELSE 4
+                        END
+                """)
+                roles = cur.fetchall()
+
+        return {"roles": roles}
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/users/invite")
+async def invite_user(
+    request: InviteRequest,
+    current_user: UserClaims = Depends(require_auth)
+):
+    """Invite a new user. Only super_user can do this."""
+    if current_user.user_role != 'super_user':
+        raise HTTPException(status_code=403, detail="Only super_user can invite users")
+
+    # Cannot invite as super_user
+    if request.role_id == 'super_user':
+        raise HTTPException(status_code=400, detail="Cannot invite users as super_user")
+
+    try:
+        with get_db_connection() as conn:
+            with conn.cursor(row_factory=dict_row) as cur:
+                # Check if user already exists
+                cur.execute("SELECT id FROM auth.users WHERE email = %s", (request.email,))
+                if cur.fetchone():
+                    raise HTTPException(status_code=400, detail="User with this email already exists")
+
+                # Check if role exists
+                cur.execute("SELECT role_id FROM dw.app_roles WHERE role_id = %s", (request.role_id,))
+                if not cur.fetchone():
+                    raise HTTPException(status_code=400, detail=f"Invalid role: {request.role_id}")
+
+                # Check for existing pending invitation
+                cur.execute("""
+                    SELECT id FROM dw.user_invitations
+                    WHERE email = %s AND status = 'pending'
+                """, (request.email,))
+                if cur.fetchone():
+                    raise HTTPException(status_code=400, detail="Pending invitation already exists for this email")
+
+                # Create invitation record
+                cur.execute("""
+                    INSERT INTO dw.user_invitations (email, role_id, invited_by)
+                    VALUES (%s, %s, %s)
+                    RETURNING id
+                """, (request.email, request.role_id, current_user.sub))
+                invitation_id = cur.fetchone()['id']
+
+            conn.commit()
+
+        # Use Supabase Admin API to send invite email
+        service_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+        supabase_url = os.getenv("SUPABASE_URL")
+
+        if not service_key or not supabase_url:
+            raise HTTPException(
+                status_code=500,
+                detail="Supabase service role key not configured. Invitation created but email not sent."
+            )
+
+        # Get the frontend URL for redirect (default to localhost for dev)
+        frontend_url = os.getenv("FRONTEND_URL", "http://localhost:5173")
+
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                f"{supabase_url}/auth/v1/invite",
+                headers={
+                    "apikey": service_key,
+                    "Authorization": f"Bearer {service_key}",
+                    "Content-Type": "application/json"
+                },
+                json={
+                    "email": request.email,
+                    "data": {"invited_role": request.role_id},
+                    "redirect_to": frontend_url
+                }
+            )
+
+            if response.status_code not in [200, 201]:
+                # Log the error but don't fail - invitation record exists
+                print(f"Warning: Supabase invite API returned {response.status_code}: {response.text}")
+
+        return {
+            "success": True,
+            "invitation_id": str(invitation_id),
+            "message": f"Invitation sent to {request.email}"
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/users/invitations")
+async def list_invitations(
+    current_user: UserClaims = Depends(require_auth)
+):
+    """List pending invitations. Only super_user can view."""
+    if current_user.user_role != 'super_user':
+        raise HTTPException(status_code=403, detail="Only super_user can view invitations")
+
+    try:
+        with get_db_connection() as conn:
+            with conn.cursor(row_factory=dict_row) as cur:
+                cur.execute("""
+                    SELECT
+                        i.id,
+                        i.email,
+                        i.role_id,
+                        r.role_name,
+                        i.invited_at,
+                        i.expires_at,
+                        u.email as invited_by_email
+                    FROM dw.user_invitations i
+                    JOIN dw.app_roles r ON i.role_id = r.role_id
+                    JOIN auth.users u ON i.invited_by = u.id
+                    WHERE i.status = 'pending'
+                    AND i.expires_at > now()
+                    ORDER BY i.invited_at DESC
+                """)
+                invitations = cur.fetchall()
+
+        return {"invitations": invitations}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/api/users/invitations/{invitation_id}")
+async def revoke_invitation(
+    invitation_id: str,
+    current_user: UserClaims = Depends(require_auth)
+):
+    """Revoke a pending invitation. Only super_user can revoke."""
+    if current_user.user_role != 'super_user':
+        raise HTTPException(status_code=403, detail="Only super_user can revoke invitations")
+
+    try:
+        with get_db_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    UPDATE dw.user_invitations
+                    SET status = 'revoked'
+                    WHERE id = %s AND status = 'pending'
+                """, (invitation_id,))
+                success = cur.rowcount > 0
+            conn.commit()
+
+        return {"success": success}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 if __name__ == "__main__":

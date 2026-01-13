@@ -14,6 +14,7 @@ import InvoiceDebug from '@/pages/InvoiceDebug';
 import DataMaintenance from '@/pages/DataMaintenance';
 import CRM from '@/pages/CRM';
 import EmailSubscriptions from '@/pages/EmailSubscriptions';
+import UserManagement from '@/pages/UserManagement';
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth();
@@ -116,6 +117,14 @@ export default function App() {
             element={
               <ProtectedRoute>
                 <EmailSubscriptions />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/users"
+            element={
+              <ProtectedRoute>
+                <UserManagement />
               </ProtectedRoute>
             }
           />
