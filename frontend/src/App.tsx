@@ -9,6 +9,7 @@ import Statements from '@/pages/Statements';
 import ClusterManagement from '@/pages/ClusterManagement';
 import Customers from '@/pages/Customers';
 import Products from '@/pages/Products';
+import Manufacturing from '@/pages/Manufacturing';
 import InvoiceDebug from '@/pages/InvoiceDebug';
 import DataMaintenance from '@/pages/DataMaintenance';
 import CRM from '@/pages/CRM';
@@ -83,6 +84,14 @@ export default function App() {
             element={
               <ProtectedRoute>
                 <Products />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/manufacturing"
+            element={
+              <ProtectedRoute>
+                <Manufacturing />
               </ProtectedRoute>
             }
           />

@@ -96,6 +96,7 @@ begin
             invoice_number text not null,
             document_type text,
             invoice_date date not null,
+            due_date date,
             lines integer,
             net_amount numeric(18,2),
             customer_id text references dw.dim_customer(customer_id),

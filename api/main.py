@@ -15,6 +15,9 @@ import psycopg
 from psycopg.rows import dict_row
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Query, BackgroundTasks
+from pydantic import BaseModel
+from typing import List
+from datetime import date
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 
@@ -24,6 +27,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from generate_statement_pdf import fetch_statement_data, StatementPDF, format_currency
 from src.reporting.sales_report import process_queue
+from src.ingestion.xero_inventory import XeroInventoryAdjuster, InventoryItem
+from src.ingestion.sync_xero import XeroClient, XeroCredentials
 
 # Load environment
 env_path = Path(__file__).parent.parent / ".env"
@@ -251,6 +256,425 @@ async def trigger_report_queue(background_tasks: BackgroundTasks):
     """Process pending report queue items immediately."""
     background_tasks.add_task(run_queue_processor)
     return {"status": "processing", "message": "Report queue processing started"}
+
+
+# =============================================================================
+# Manufacturing / Production Conversion Endpoints
+# =============================================================================
+
+# Pydantic models for manufacturing
+class FinishedGoodInput(BaseModel):
+    product_code: str
+    product_name: str
+    quantity: float
+    unit_weight_kg: float  # Weight per unit (1kg or 10kg)
+
+
+class ConversionRequest(BaseModel):
+    bulk_product_code: str
+    bags_consumed: float
+    finished_goods: List[FinishedGoodInput]
+    conversion_date: date
+    notes: str | None = None
+
+
+class ConversionResponse(BaseModel):
+    success: bool
+    conversion_id: int | None = None
+    xero_credit_note_id: str | None = None
+    xero_invoice_id: str | None = None
+    message: str
+    bulk_total_value: float | None = None
+    finished_unit_costs: dict | None = None
+
+
+# Manufacturing product configuration
+BULK_PRODUCTS = {
+    "TUIT_CL_UP": {
+        "name": "Cotton Tuit Bulk",
+        "bag_weight_kg": 11.0,
+        "material_type": "cotton",
+        "converts_to": ["KLIPTUIT02", "KLIPTUIT03"]
+    },
+    "TUIT_NY_UP": {
+        "name": "Nylon Tuit Bulk",
+        "bag_weight_kg": 10.0,
+        "material_type": "nylon",
+        "converts_to": ["KLIPTUIT04", "KLIPTUIT05"]
+    }
+}
+
+FINISHED_PRODUCTS = {
+    "KLIPTUIT02": {"name": "Klip Tuit Cotton 10kg", "weight_kg": 10.0, "material_type": "cotton"},
+    "KLIPTUIT03": {"name": "Klip Tuit Cotton 1kg", "weight_kg": 1.0, "material_type": "cotton"},
+    "KLIPTUIT04": {"name": "Klip Tuit Nylon 10kg", "weight_kg": 10.0, "material_type": "nylon"},
+    "KLIPTUIT05": {"name": "Klip Tuit Nylon 1kg", "weight_kg": 1.0, "material_type": "nylon"},
+}
+
+
+def get_xero_client():
+    """Create and return an authenticated Xero client."""
+    conn_str = os.getenv("SUPABASE_CONNECTION_STRING")
+    if not conn_str:
+        raise HTTPException(status_code=500, detail="Database connection not configured")
+
+    creds = XeroCredentials(
+        client_id=os.getenv("XERO_CLIENT_ID", ""),
+        client_secret=os.getenv("XERO_CLIENT_SECRET", ""),
+        tenant_id=os.getenv("XERO_TENANT_ID", ""),
+        scopes=os.getenv("XERO_SCOPES", "accounting.transactions accounting.transactions.read accounting.contacts.read accounting.settings.read"),
+    )
+
+    if not all([creds.client_id, creds.client_secret, creds.tenant_id]):
+        raise HTTPException(status_code=500, detail="Xero credentials not configured")
+
+    conn = psycopg.connect(conn_str)
+    return XeroClient(creds, conn), conn
+
+
+@app.get("/api/manufacturing/products")
+async def get_manufacturing_products():
+    """Get all products involved in manufacturing (bulk and finished)."""
+    try:
+        with get_db_connection() as conn:
+            with conn.cursor(row_factory=dict_row) as cur:
+                # Get bulk products - include total_cost_pool for NZD landed cost calculation
+                cur.execute("""
+                    SELECT
+                        product_code,
+                        item_name,
+                        quantity_on_hand,
+                        total_cost_pool,
+                        inventory_asset_account_code
+                    FROM dw.dim_product
+                    WHERE product_code IN ('TUIT_CL_UP', 'TUIT_NY_UP')
+                    AND archived = false
+                """)
+                bulk_rows = cur.fetchall()
+
+                # Get finished products
+                cur.execute("""
+                    SELECT
+                        product_code,
+                        item_name,
+                        quantity_on_hand,
+                        total_cost_pool,
+                        inventory_asset_account_code
+                    FROM dw.dim_product
+                    WHERE product_code IN ('KLIPTUIT02', 'KLIPTUIT03', 'KLIPTUIT04', 'KLIPTUIT05')
+                    AND archived = false
+                """)
+                finished_rows = cur.fetchall()
+
+        # Enrich with configuration and calculate landed cost
+        bulk_products = []
+        for row in bulk_rows:
+            config = BULK_PRODUCTS.get(row["product_code"], {})
+            qty = float(row["quantity_on_hand"] or 0)
+            cost_pool = float(row["total_cost_pool"] or 0)
+            landed_cost_per_kg = cost_pool / qty if qty > 0 else 0
+            bulk_products.append({
+                **row,
+                "bag_weight_kg": config.get("bag_weight_kg"),
+                "material_type": config.get("material_type"),
+                "converts_to": config.get("converts_to", []),
+                "landed_cost_per_kg": landed_cost_per_kg  # NZD per kg
+            })
+
+        finished_products = []
+        for row in finished_rows:
+            config = FINISHED_PRODUCTS.get(row["product_code"], {})
+            qty = float(row["quantity_on_hand"] or 0)
+            cost_pool = float(row["total_cost_pool"] or 0)
+            landed_cost_per_unit = cost_pool / qty if qty > 0 else 0
+            finished_products.append({
+                **row,
+                "weight_kg": config.get("weight_kg"),
+                "material_type": config.get("material_type"),
+                "landed_cost_per_unit": landed_cost_per_unit  # NZD per unit
+            })
+
+        return {
+            "bulk_products": bulk_products,
+            "finished_products": finished_products
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/manufacturing/convert", response_model=ConversionResponse)
+async def process_conversion(request: ConversionRequest):
+    """Process a manufacturing conversion from bulk to finished goods."""
+    try:
+        # Validate bulk product
+        if request.bulk_product_code not in BULK_PRODUCTS:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid bulk product code: {request.bulk_product_code}"
+            )
+
+        bulk_config = BULK_PRODUCTS[request.bulk_product_code]
+        material_type = bulk_config["material_type"]
+
+        # Validate finished goods are compatible with bulk material
+        for fg in request.finished_goods:
+            fg_config = FINISHED_PRODUCTS.get(fg.product_code)
+            if not fg_config:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Invalid finished product code: {fg.product_code}"
+                )
+            if fg_config["material_type"] != material_type:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Product {fg.product_code} ({fg_config['material_type']}) is not compatible with {request.bulk_product_code} ({material_type})"
+                )
+
+        # Calculate quantities and values
+        kg_consumed = request.bags_consumed * bulk_config["bag_weight_kg"]
+
+        # Get current prices from database
+        with get_db_connection() as conn:
+            with conn.cursor(row_factory=dict_row) as cur:
+                # Get bulk product - use total_cost_pool / quantity_on_hand for landed cost (NZD)
+                cur.execute("""
+                    SELECT total_cost_pool, quantity_on_hand, inventory_asset_account_code, item_name
+                    FROM dw.dim_product
+                    WHERE product_code = %s
+                """, (request.bulk_product_code,))
+                bulk_row = cur.fetchone()
+
+                if not bulk_row:
+                    raise HTTPException(
+                        status_code=404,
+                        detail=f"Bulk product not found: {request.bulk_product_code}"
+                    )
+
+                # Calculate landed cost in NZD from cost pool (not USD purchase price)
+                quantity_on_hand = float(bulk_row["quantity_on_hand"] or 0)
+                total_cost_pool = float(bulk_row["total_cost_pool"] or 0)
+
+                if quantity_on_hand <= 0:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Bulk product {request.bulk_product_code} has no stock on hand"
+                    )
+
+                bulk_unit_cost = total_cost_pool / quantity_on_hand  # NZD per kg
+                bulk_account_code = bulk_row["inventory_asset_account_code"] or "575"
+                bulk_name = bulk_row["item_name"]
+
+                # Get finished product details
+                finished_codes = [fg.product_code for fg in request.finished_goods]
+                cur.execute("""
+                    SELECT product_code, inventory_asset_account_code, item_name
+                    FROM dw.dim_product
+                    WHERE product_code = ANY(%s)
+                """, (finished_codes,))
+                finished_details = {row["product_code"]: row for row in cur.fetchall()}
+
+        # Calculate bulk total value
+        bulk_total_value = kg_consumed * bulk_unit_cost
+
+        # Calculate total finished quantity (in kg equivalent)
+        total_finished_kg = sum(fg.quantity * fg.unit_weight_kg for fg in request.finished_goods)
+
+        # Calculate unit cost for finished goods (value per kg stays the same)
+        finished_unit_costs = {}
+        finished_items_for_xero = []
+
+        for fg in request.finished_goods:
+            fg_details = finished_details.get(fg.product_code, {})
+            # Unit cost = (bulk_unit_cost per kg) * (weight of this unit)
+            # This preserves total value: bulk_value = sum(finished_quantity * finished_unit_cost)
+            unit_cost = bulk_unit_cost * fg.unit_weight_kg
+            finished_unit_costs[fg.product_code] = unit_cost
+
+            finished_items_for_xero.append(InventoryItem(
+                item_code=fg.product_code,
+                description=f"Production conversion from {request.bulk_product_code}",
+                quantity=fg.quantity,
+                unit_amount=unit_cost,
+                account_code=fg_details.get("inventory_asset_account_code") or "575"
+            ))
+
+        # Create Xero adjustments
+        xero_client, xero_conn = get_xero_client()
+        try:
+            adjuster = XeroInventoryAdjuster(xero_client)
+
+            # Create bulk decrease item
+            bulk_item = InventoryItem(
+                item_code=request.bulk_product_code,
+                description=f"Production conversion - {request.bags_consumed} bags consumed",
+                quantity=kg_consumed,
+                unit_amount=bulk_unit_cost,
+                account_code=bulk_account_code
+            )
+
+            # Process the conversion in Xero
+            credit_note_id, invoice_id = adjuster.process_conversion(
+                bulk_item=bulk_item,
+                finished_items=finished_items_for_xero,
+                adjustment_date=request.conversion_date,
+                reference_prefix="PROD"
+            )
+
+        finally:
+            xero_conn.close()
+
+        # Save conversion record to database
+        with get_db_connection() as conn:
+            with conn.cursor() as cur:
+                finished_goods_json = [
+                    {
+                        "product_code": fg.product_code,
+                        "product_name": fg.product_name,
+                        "quantity": fg.quantity,
+                        "unit_cost": finished_unit_costs[fg.product_code],
+                        "total_value": fg.quantity * finished_unit_costs[fg.product_code]
+                    }
+                    for fg in request.finished_goods
+                ]
+
+                cur.execute("""
+                    INSERT INTO dw.production_conversion (
+                        conversion_date,
+                        bulk_product_code,
+                        bulk_product_name,
+                        bags_consumed,
+                        kg_consumed,
+                        bulk_unit_cost,
+                        bulk_total_value,
+                        finished_goods,
+                        xero_credit_note_id,
+                        xero_invoice_id,
+                        notes
+                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s, %s, %s)
+                    RETURNING conversion_id
+                """, (
+                    request.conversion_date,
+                    request.bulk_product_code,
+                    bulk_name,
+                    request.bags_consumed,
+                    kg_consumed,
+                    bulk_unit_cost,
+                    bulk_total_value,
+                    str(finished_goods_json).replace("'", '"'),
+                    credit_note_id,
+                    invoice_id,
+                    request.notes
+                ))
+                conversion_id = cur.fetchone()[0]
+            conn.commit()
+
+        return ConversionResponse(
+            success=True,
+            conversion_id=conversion_id,
+            xero_credit_note_id=credit_note_id,
+            xero_invoice_id=invoice_id,
+            message=f"Conversion completed successfully. Consumed {kg_consumed}kg of {request.bulk_product_code}.",
+            bulk_total_value=bulk_total_value,
+            finished_unit_costs=finished_unit_costs
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/manufacturing/history")
+async def get_conversion_history(
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0)
+):
+    """Get conversion history records."""
+    try:
+        with get_db_connection() as conn:
+            # Check if table exists first (use regular cursor for this)
+            with conn.cursor() as check_cur:
+                check_cur.execute("""
+                    SELECT EXISTS (
+                        SELECT FROM information_schema.tables
+                        WHERE table_schema = 'dw'
+                        AND table_name = 'production_conversion'
+                    )
+                """)
+                table_exists = check_cur.fetchone()[0]
+
+            if not table_exists:
+                return {
+                    "records": [],
+                    "total": 0,
+                    "limit": limit,
+                    "offset": offset,
+                    "message": "Table not yet created. Run the migration first."
+                }
+
+            with conn.cursor(row_factory=dict_row) as cur:
+                cur.execute("""
+                    SELECT
+                        conversion_id,
+                        conversion_date,
+                        bulk_product_code,
+                        bulk_product_name,
+                        bags_consumed,
+                        kg_consumed,
+                        bulk_unit_cost,
+                        bulk_total_value,
+                        finished_goods,
+                        xero_credit_note_id,
+                        xero_invoice_id,
+                        created_by,
+                        created_at,
+                        notes
+                    FROM dw.production_conversion
+                    ORDER BY conversion_date DESC
+                    LIMIT %s OFFSET %s
+                """, (limit, offset))
+                records = cur.fetchall()
+
+            # Get total count
+            with conn.cursor() as count_cur:
+                count_cur.execute("SELECT COUNT(*) FROM dw.production_conversion")
+                total = count_cur.fetchone()[0]
+
+        return {
+            "records": records,
+            "total": total,
+            "limit": limit,
+            "offset": offset
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/manufacturing/yield-estimate")
+async def calculate_yield_estimate(
+    bulk_product_code: str,
+    bags_consumed: float
+):
+    """Calculate expected yield for a given bulk consumption."""
+    if bulk_product_code not in BULK_PRODUCTS:
+        raise HTTPException(status_code=400, detail=f"Invalid bulk product: {bulk_product_code}")
+
+    config = BULK_PRODUCTS[bulk_product_code]
+    kg_consumed = bags_consumed * config["bag_weight_kg"]
+
+    return {
+        "bulk_product_code": bulk_product_code,
+        "bags_consumed": bags_consumed,
+        "kg_consumed": kg_consumed,
+        "expected_1kg_units": kg_consumed,  # Maximum if all packed as 1kg
+        "expected_10kg_units": kg_consumed / 10,  # Maximum if all packed as 10kg
+        "material_type": config["material_type"],
+        "compatible_products": config["converts_to"]
+    }
 
 
 if __name__ == "__main__":

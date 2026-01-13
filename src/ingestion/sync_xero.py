@@ -209,8 +209,10 @@ class XeroClient:
     def _auth_header(self) -> dict:
         """Get authorization headers, requesting new token if needed."""
         if not self.access_token or (self.token_expiry and pendulum.now("UTC") >= self.token_expiry):
+            logger.info("Token missing or expired, requesting new token...")
             self._request_access_token()
         assert self.access_token  # for type checkers
+        logger.info(f"Auth header: tenant_id={self.creds.tenant_id[:8] if self.creds.tenant_id else 'NONE'}..., token_len={len(self.access_token)}")
         return {
             "Authorization": f"Bearer {self.access_token}",
             "xero-tenant-id": self.creds.tenant_id,
@@ -503,18 +505,25 @@ def extract_dataframes(invoices: List[dict]) -> Tuple[pd.DataFrame, pd.DataFrame
                 voided_invoices.append(invoice_number)
             continue  # Skip adding to dataframes
 
+        # Skip invoices without invoice numbers (e.g., draft bills)
+        if not invoice_number:
+            logger.debug(f"Skipping invoice without number: {inv.get('Type')} for {inv.get('Contact', {}).get('Name')}")
+            continue
+
         # Payment status tracking
         amount_due = inv.get("AmountDue", 0) or 0
         total = inv.get("Total", 0) or 0
         amount_paid = total - amount_due
 
         invoice_date = parse_xero_date(inv.get("Date"))
+        due_date = parse_xero_date(inv.get("DueDate"))
 
         invoice_rows.append(
             {
                 "invoice_number": invoice_number,
                 "document_type": inv.get("Type"),
                 "invoice_date": invoice_date,
+                "due_date": due_date,
                 "lines": len(inv.get("LineItems", [])),
                 "net_amount": total,
                 "customer_id": inv.get("Contact", {}).get("ContactID"),
@@ -634,8 +643,13 @@ def validate_connection_string(conn_str: str) -> None:
         logger.warning(f"Could not parse connection string: {e}")
 
 
-def main():
-    """Main entry point for Xero sync process."""
+def main(full_sync: bool = False):
+    """Main entry point for Xero sync process.
+
+    Args:
+        full_sync: If True, fetch invoices from the last 90 days regardless of last sync timestamp.
+                   Use this to backfill due_date or other fields for recent invoices.
+    """
     load_dotenv(override=True)
 
     logger.info("Starting Xero sync process")
@@ -670,12 +684,16 @@ def main():
         # Initialize Xero client (will load tokens from DB if available)
         client = XeroClient(creds, conn)
 
-        # Get last sync timestamp
-        modified_since = get_last_sync(conn)
-        if modified_since:
-            logger.info(f"Fetching invoices modified since {modified_since}")
+        # Get last sync timestamp (use 90 days ago if full_sync requested)
+        if full_sync:
+            modified_since = pendulum.now("UTC").subtract(days=90)
+            logger.info(f"Fetching invoices from last 90 days (since {modified_since.to_date_string()})")
         else:
-            logger.info("Fetching all invoices (first sync)")
+            modified_since = get_last_sync(conn)
+            if modified_since:
+                logger.info(f"Fetching invoices modified since {modified_since}")
+            else:
+                logger.info("Fetching all invoices (first sync)")
 
         # Fetch invoices from Xero
         invoices = client.fetch_invoices(modified_since)
@@ -838,5 +856,7 @@ if __name__ == "__main__":
     import sys
     if len(sys.argv) > 1 and sys.argv[1] == "--cleanup":
         cleanup_voided_invoices()
+    elif len(sys.argv) > 1 and sys.argv[1] == "--full-sync":
+        main(full_sync=True)
     else:
         main()

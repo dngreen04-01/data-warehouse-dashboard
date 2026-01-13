@@ -1,5 +1,6 @@
 -- View to provide the necessary data for generating customer statements.
 -- Only shows invoices due by the end of the current month.
+-- Aging is based on actual due_date from Xero (falls back to invoice_date + 30 days).
 
 create or replace view mart.vw_statement_details as
 select
@@ -9,14 +10,15 @@ select
     coalesce(mg.bill_to, master.bill_to) as head_office_address,
     i.invoice_number,
     i.invoice_date,
-    (i.invoice_date + interval '30 days')::date as due_date,
+    coalesce(i.due_date, (i.invoice_date + interval '30 days')::date) as due_date,
     i.amount_due as outstanding_amount,
     i.status as invoice_status,
+    -- Aging based on days past due date (not yet due = current)
     case
-        when (current_date - (i.invoice_date + interval '30 days')::date) <= 0 then 'current'
-        when (current_date - (i.invoice_date + interval '30 days')::date) between 1 and 30 then '1-30'
-        when (current_date - (i.invoice_date + interval '30 days')::date) between 31 and 60 then '31-60'
-        when (current_date - (i.invoice_date + interval '30 days')::date) between 61 and 90 then '61-90'
+        when current_date <= coalesce(i.due_date, (i.invoice_date + interval '30 days')::date) then 'current'
+        when (current_date - coalesce(i.due_date, (i.invoice_date + interval '30 days')::date)) between 1 and 30 then '1-30'
+        when (current_date - coalesce(i.due_date, (i.invoice_date + interval '30 days')::date)) between 31 and 60 then '31-60'
+        when (current_date - coalesce(i.due_date, (i.invoice_date + interval '30 days')::date)) between 61 and 90 then '61-90'
         else '90+'
     end as aging_bucket
 from dw.fct_invoice as i
@@ -33,7 +35,7 @@ where
         or c.customer_name ilike '%HortiCentre%'
         or c.customer_name ilike '%Horticentre%'
     )
-    and (i.invoice_date + interval '30 days')::date <= (
+    and coalesce(i.due_date, (i.invoice_date + interval '30 days')::date) <= (
         date_trunc('month', current_date) + interval '1 month' - interval '1 day'
     )::date
     and (i.document_type in ('ACCREC', 'Tax Invoice') or i.document_type is null)

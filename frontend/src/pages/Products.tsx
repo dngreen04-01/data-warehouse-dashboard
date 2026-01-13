@@ -14,6 +14,9 @@ interface Product {
     item_description: string;
     product_group: string;
     price: number;
+    purchase_unit_price: number | null;
+    quantity_on_hand: number | null;
+    is_tracked_as_inventory: boolean;
     archived: boolean;
     cluster_id: number | null;
     cluster_label: string | null;
@@ -46,15 +49,42 @@ export default function Products() {
     const fetchProducts = async () => {
         setLoading(true);
         try {
-            // Try using the RPC that includes cluster info
-            const { data, error } = await supabase.rpc('get_products_with_clusters');
+            // Direct query to dw schema for inventory-tracked products with cluster info
+            const { data, error } = await supabase
+                .schema('dw')
+                .from('dim_product')
+                .select(`
+                    product_id,
+                    product_code,
+                    item_name,
+                    item_description,
+                    product_group,
+                    price,
+                    purchase_unit_price,
+                    quantity_on_hand,
+                    is_tracked_as_inventory,
+                    archived,
+                    dim_product_cluster (
+                        cluster_id,
+                        dim_cluster (
+                            cluster_id,
+                            cluster_label
+                        )
+                    )
+                `)
+                .eq('archived', false)
+                .eq('is_tracked_as_inventory', true)
+                .order('item_name');
 
             if (error) {
-                // Fallback to direct query if RPC doesn't exist
+                console.error('Error fetching products:', error);
+                // Fallback without cluster join
                 const { data: fallbackData } = await supabase
+                    .schema('dw')
                     .from('dim_product')
                     .select('*')
                     .eq('archived', false)
+                    .eq('is_tracked_as_inventory', true)
                     .order('item_name');
                 setProducts((fallbackData || []).map(p => ({
                     ...p,
@@ -62,7 +92,22 @@ export default function Products() {
                     cluster_label: null
                 })));
             } else {
-                setProducts(data || []);
+                // Map joined data to flat structure
+                const mappedProducts = (data || []).map((p: any) => ({
+                    product_id: p.product_id,
+                    product_code: p.product_code,
+                    item_name: p.item_name,
+                    item_description: p.item_description,
+                    product_group: p.product_group,
+                    price: p.price,
+                    purchase_unit_price: p.purchase_unit_price,
+                    quantity_on_hand: p.quantity_on_hand,
+                    is_tracked_as_inventory: p.is_tracked_as_inventory,
+                    archived: p.archived,
+                    cluster_id: p.dim_product_cluster?.dim_cluster?.cluster_id ?? null,
+                    cluster_label: p.dim_product_cluster?.dim_cluster?.cluster_label ?? null
+                }));
+                setProducts(mappedProducts);
             }
         } catch (error) {
             console.error('Error fetching products:', error);
@@ -322,9 +367,9 @@ export default function Products() {
                     <Loader2 className="h-10 w-10 animate-spin text-blue-600" />
                 </div>
             ) : (
-                <div className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
+                <div className="-mx-4 sm:-mx-6 lg:-mx-8 overflow-hidden border-y border-gray-200 bg-white shadow-sm">
                     <div className="overflow-x-auto">
-                        <table className="min-w-full divide-y divide-gray-200">
+                        <table className="w-full divide-y divide-gray-200">
                             <thead className="bg-gray-50">
                                 <tr>
                                     <th
@@ -354,6 +399,15 @@ export default function Products() {
                                             <SortIcon field="product_group" />
                                         </div>
                                     </th>
+                                    <th className="px-6 py-3.5 text-right text-xs font-semibold uppercase tracking-wider text-gray-500">
+                                        Price
+                                    </th>
+                                    <th className="px-6 py-3.5 text-right text-xs font-semibold uppercase tracking-wider text-gray-500">
+                                        Purchase Price
+                                    </th>
+                                    <th className="px-6 py-3.5 text-right text-xs font-semibold uppercase tracking-wider text-gray-500">
+                                        Qty on Hand
+                                    </th>
                                     <th className="px-6 py-3.5 text-left text-xs font-semibold uppercase tracking-wider text-gray-500">
                                         Cluster
                                     </th>
@@ -365,7 +419,7 @@ export default function Products() {
                             <tbody className="divide-y divide-gray-200 bg-white">
                                 {filteredAndSortedProducts.length === 0 ? (
                                     <tr>
-                                        <td colSpan={5} className="px-6 py-12 text-center">
+                                        <td colSpan={8} className="px-6 py-12 text-center">
                                             <Package className="mx-auto h-12 w-12 text-gray-300" />
                                             <p className="mt-2 text-sm text-gray-500">No products found</p>
                                             {(searchQuery || activeFilterCount > 0) && (
@@ -437,6 +491,28 @@ export default function Products() {
                                                         <span className="text-sm text-gray-400">-</span>
                                                     )
                                                 )}
+                                            </td>
+                                            <td className="whitespace-nowrap px-6 py-4 text-right">
+                                                <span className="text-sm font-medium text-gray-900">
+                                                    {product.price != null ? `$${Number(product.price).toFixed(2)}` : '-'}
+                                                </span>
+                                            </td>
+                                            <td className="whitespace-nowrap px-6 py-4 text-right">
+                                                <span className="text-sm text-gray-600">
+                                                    {product.purchase_unit_price != null ? `$${Number(product.purchase_unit_price).toFixed(2)}` : '-'}
+                                                </span>
+                                            </td>
+                                            <td className="whitespace-nowrap px-6 py-4 text-right">
+                                                <span className={clsx(
+                                                    'text-sm font-medium',
+                                                    product.quantity_on_hand != null && Number(product.quantity_on_hand) <= 0
+                                                        ? 'text-red-600'
+                                                        : product.quantity_on_hand != null && Number(product.quantity_on_hand) <= 10
+                                                            ? 'text-amber-600'
+                                                            : 'text-gray-900'
+                                                )}>
+                                                    {product.quantity_on_hand != null ? Number(product.quantity_on_hand).toLocaleString() : '-'}
+                                                </span>
                                             </td>
                                             <td className="whitespace-nowrap px-6 py-4">
                                                 {product.cluster_label ? (
