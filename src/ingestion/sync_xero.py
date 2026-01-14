@@ -598,11 +598,18 @@ def delete_voided_invoices(conn, invoice_numbers: List[str]) -> int:
 
 
 def get_last_sync(conn) -> pendulum.DateTime | None:
+    """Get the timestamp of the last successful sync run.
+
+    Uses last_success_at (when sync ran) not last_invoice_date (date of newest invoice).
+    This ensures incremental syncs only fetch invoices modified since the last run.
+    """
     with conn.cursor() as cur:
-        cur.execute("select last_invoice_date from dw.sync_state where pipeline_name = %s", ("xero_sync",))
+        cur.execute("select last_success_at from dw.sync_state where pipeline_name = %s", ("xero_sync",))
         row = cur.fetchone()
         if row and row[0]:
-            return pendulum.datetime(row[0].year, row[0].month, row[0].day, tz='UTC')
+            # last_success_at is a timestamp, convert to pendulum DateTime
+            ts = row[0]
+            return pendulum.instance(ts, tz='UTC')
     return None
 
 
