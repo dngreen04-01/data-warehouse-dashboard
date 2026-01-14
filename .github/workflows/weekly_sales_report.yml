@@ -1,5 +1,5 @@
 
-name: Weekly Sales Email
+name: Weekly Sales Report
 
 on:
   schedule:
@@ -11,25 +11,24 @@ jobs:
   report:
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    
+
     steps:
     - uses: actions/checkout@v4
-    
+
     - name: Set up Python
       uses: actions/setup-python@v5
       with:
         python-version: '3.11'
         cache: 'pip'
-        
+
     - name: Install Dependencies
       run: |
         python -m pip install --upgrade pip
         if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
-        
-    - name: Send Weekly Sales Email
+
+    - name: Send Weekly Sales Reports
       run: |
-        python -m src.reporting.weekly_email
+        python -m src.reporting.sales_report
       env:
         SUPABASE_CONNECTION_STRING: ${{ secrets.SUPABASE_CONNECTION_STRING }}
         SENDGRID_API_KEY: ${{ secrets.SENDGRID_API_KEY }}
-        GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}

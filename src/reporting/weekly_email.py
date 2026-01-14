@@ -1,4 +1,12 @@
+"""
+DEPRECATED: This module is deprecated as of January 2026.
 
+Use sales_report.py instead, which provides subscription-based email delivery
+with configurable short/detailed report types.
+
+This file is retained for reference only and is no longer triggered by any
+scheduled workflow.
+"""
 
 import os
 import logging
