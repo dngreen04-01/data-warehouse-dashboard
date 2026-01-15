@@ -5,6 +5,7 @@ import AppLayout from '@/components/layout/AppLayout';
 import { Loader2 } from 'lucide-react';
 
 import Dashboard from '@/pages/Dashboard';
+import ProductCalendar from '@/pages/ProductCalendar';
 import Statements from '@/pages/Statements';
 import ClusterManagement from '@/pages/ClusterManagement';
 import Customers from '@/pages/Customers';
@@ -45,6 +46,14 @@ export default function App() {
             element={
               <ProtectedRoute>
                 <Dashboard />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/product-calendar"
+            element={
+              <ProtectedRoute>
+                <ProductCalendar />
               </ProtectedRoute>
             }
           />

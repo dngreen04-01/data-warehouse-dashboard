@@ -4,6 +4,7 @@ import { Loader2 } from 'lucide-react';
 
 export default function Login() {
     const [email, setEmail] = useState('');
+    const [password, setPassword] = useState('');
     const [loading, setLoading] = useState(false);
     const [message, setMessage] = useState('');
 
@@ -13,18 +14,14 @@ export default function Login() {
         setMessage('');
 
         try {
-            const { error } = await supabase.auth.signInWithOtp({
+            const { error } = await supabase.auth.signInWithPassword({
                 email,
-                options: {
-                    emailRedirectTo: window.location.origin,
-                },
+                password,
             });
 
             if (error) {
                 throw error;
             }
-
-            setMessage('Check your email for the login link!');
         } catch (error: any) {
             setMessage(error.message || 'An error occurred during login');
         } finally {
@@ -40,13 +37,13 @@ export default function Login() {
                         Sign in to Data Warehouse
                     </h2>
                     <p className="mt-2 text-center text-sm text-gray-600">
-                        Enter your email to receive a magic link
+                        Enter your credentials to continue
                     </p>
                 </div>
                 <form className="mt-8 space-y-6" onSubmit={handleLogin}>
-                    <div className="-space-y-px rounded-md shadow-sm">
+                    <div className="space-y-4 rounded-md">
                         <div>
-                            <label htmlFor="email-address" className="sr-only">
+                            <label htmlFor="email-address" className="block text-sm font-medium text-gray-700 mb-1">
                                 Email address
                             </label>
                             <input
@@ -55,10 +52,26 @@ export default function Login() {
                                 type="email"
                                 autoComplete="email"
                                 required
-                                className="relative block w-full rounded-md border-0 py-1.5 text-gray-900 ring-1 ring-inset ring-gray-300 placeholder:text-gray-400 focus:z-10 focus:ring-2 focus:ring-inset focus:ring-blue-600 sm:text-sm sm:leading-6 pl-3"
+                                className="relative block w-full rounded-md border-0 py-2 px-3 text-gray-900 ring-1 ring-inset ring-gray-300 placeholder:text-gray-400 focus:z-10 focus:ring-2 focus:ring-inset focus:ring-blue-600 sm:text-sm sm:leading-6"
                                 placeholder="Email address"
                                 value={email}
                                 onChange={(e) => setEmail(e.target.value)}
+                            />
+                        </div>
+                        <div>
+                            <label htmlFor="password" className="block text-sm font-medium text-gray-700 mb-1">
+                                Password
+                            </label>
+                            <input
+                                id="password"
+                                name="password"
+                                type="password"
+                                autoComplete="current-password"
+                                required
+                                className="relative block w-full rounded-md border-0 py-2 px-3 text-gray-900 ring-1 ring-inset ring-gray-300 placeholder:text-gray-400 focus:z-10 focus:ring-2 focus:ring-inset focus:ring-blue-600 sm:text-sm sm:leading-6"
+                                placeholder="Password"
+                                value={password}
+                                onChange={(e) => setPassword(e.target.value)}
                             />
                         </div>
                     </div>
@@ -72,12 +85,12 @@ export default function Login() {
                             <span className="absolute inset-y-0 left-0 flex items-center pl-3">
                                 {loading && <Loader2 className="h-5 w-5 animate-spin text-blue-300" />}
                             </span>
-                            {loading ? 'Sending link...' : 'Sign in'}
+                            {loading ? 'Signing in...' : 'Sign in'}
                         </button>
                     </div>
 
                     {message && (
-                        <div className={`text-center text-sm ${message.includes('error') ? 'text-red-600' : 'text-green-600'}`}>
+                        <div className="text-center text-sm text-red-600">
                             {message}
                         </div>
                     )}

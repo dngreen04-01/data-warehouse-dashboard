@@ -15,7 +15,8 @@ import {
     GitMerge,
     MessageSquare,
     Mail,
-    Factory
+    Factory,
+    Calendar
 } from 'lucide-react';
 import { Link, useLocation } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
@@ -23,6 +24,7 @@ import clsx from 'clsx';
 
 const navigation = [
     { name: 'Dashboard', href: '/', icon: LayoutDashboard, description: 'Sales overview & analytics' },
+    { name: 'Product Calendar', href: '/product-calendar', icon: Calendar, description: 'Monthly sales matrix' },
     { name: 'Customers', href: '/customers', icon: UserCircle, description: 'Manage customer records' },
     { name: 'Products', href: '/products', icon: Package, description: 'Product catalog' },
     { name: 'Manufacturing', href: '/manufacturing', icon: Factory, description: 'Stock conversions' },
