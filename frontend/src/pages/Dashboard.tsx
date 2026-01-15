@@ -45,6 +45,7 @@ export default function Dashboard() {
         merchant_group: [] as string[],
         product_group: [] as string[],
         market: [] as string[],
+        customer: [] as string[],
         customer_cluster: [] as string[],
         product_cluster: [] as string[]
     });
@@ -133,6 +134,7 @@ export default function Dashboard() {
                 p_merchant_group: filters.merchant_group.length ? filters.merchant_group : null,
                 p_product_group: filters.product_group.length ? filters.product_group : null,
                 p_market: filters.market.length ? filters.market : null,
+                p_customer: filters.customer.length ? filters.customer : null,
                 p_cluster: filters.customer_cluster.length ? filters.customer_cluster : null,
                 p_product_cluster: filters.product_cluster.length ? filters.product_cluster : null,
             };
@@ -247,6 +249,7 @@ export default function Dashboard() {
                     p_merchant_group: filters.merchant_group.length ? filters.merchant_group : null,
                     p_product_group: filters.product_group.length ? filters.product_group : null,
                     p_market: filters.market.length ? filters.market : null,
+                    p_customer: filters.customer.length ? filters.customer : null,
                     p_cluster: filters.customer_cluster.length ? filters.customer_cluster : null,
                     p_product_cluster: filters.product_cluster.length ? filters.product_cluster : null,
                     p_dimension: breakdownDim,
@@ -258,6 +261,7 @@ export default function Dashboard() {
                     p_merchant_group: filters.merchant_group.length ? filters.merchant_group : null,
                     p_product_group: filters.product_group.length ? filters.product_group : null,
                     p_market: filters.market.length ? filters.market : null,
+                    p_customer: filters.customer.length ? filters.customer : null,
                     p_cluster: filters.customer_cluster.length ? filters.customer_cluster : null,
                     p_product_cluster: filters.product_cluster.length ? filters.product_cluster : null,
                     p_dimension: breakdownDim,
@@ -499,14 +503,15 @@ export default function Dashboard() {
                 <div className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
                     <div className="mb-4 flex items-center justify-between">
                         <h3 className="font-semibold text-gray-900">Active Filters</h3>
-                        <button onClick={() => setFilters({ merchant_group: [], product_group: [], market: [], customer_cluster: [], product_cluster: [] })} className="text-sm text-red-600 hover:underline">
+                        <button onClick={() => setFilters({ merchant_group: [], product_group: [], market: [], customer: [], customer_cluster: [], product_cluster: [] })} className="text-sm text-red-600 hover:underline">
                             Clear All
                         </button>
                     </div>
-                    <div className="grid gap-6 md:grid-cols-3 lg:grid-cols-5">
+                    <div className="grid gap-6 md:grid-cols-3 lg:grid-cols-6">
                         <FilterGroup title="Market" options={options.markets} selected={filters.market} onToggle={(v: string) => toggleFilter('market', v)} />
                         <FilterGroup title="Product" options={options.product_groups} selected={filters.product_group} onToggle={(v: string) => toggleFilter('product_group', v)} />
                         <FilterGroup title="Merchant Group" options={options.merchant_groups} selected={filters.merchant_group} onToggle={(v: string) => toggleFilter('merchant_group', v)} />
+                        <FilterGroup title="Customer" options={options.customers} selected={filters.customer} onToggle={(v: string) => toggleFilter('customer', v)} />
                         <FilterGroup title="Customer Cluster" options={options.customer_clusters || options.clusters} selected={filters.customer_cluster} onToggle={(v: string) => toggleFilter('customer_cluster', v)} />
                         <FilterGroup title="Product Cluster" options={options.product_clusters} selected={filters.product_cluster} onToggle={(v: string) => toggleFilter('product_cluster', v)} />
                     </div>
