@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 from dataclasses import dataclass
 from datetime import date, datetime
 from typing import List, Tuple
@@ -291,6 +292,45 @@ def upsert_dataframe(conn, table_identifier: str, frame: pd.DataFrame, conflict_
 
 
 
+def normalize_customer_name(name: str) -> str:
+    """Strip Xero prefixes like 'Local - 1:' for matching.
+
+    Xero creates contacts with prefixes like "Local - 1:Company Name" which
+    should match to existing "Company Name" customers.
+    """
+    if not name:
+        return name
+    # Strip "Local - N:" prefix pattern
+    cleaned = re.sub(r'^Local\s*-\s*\d+\s*:\s*', '', name, flags=re.IGNORECASE)
+    return cleaned.strip()
+
+
+def find_customer_match(cur, customer_name: str, threshold: float = 0.7):
+    """Find best matching existing customer using fuzzy matching.
+
+    Uses PostgreSQL pg_trgm similarity function to find potential matches.
+    Compares both the original name and the normalized name (with Xero prefixes stripped).
+
+    Returns (customer_id, customer_name, similarity_score) or None.
+    """
+    normalized = normalize_customer_name(customer_name)
+    cur.execute("""
+        SELECT customer_id, customer_name,
+               GREATEST(
+                   similarity(customer_name, %s),
+                   similarity(customer_name, %s)
+               ) as sim
+        FROM dw.dim_customer
+        WHERE master_customer_id IS NULL
+          AND archived IS DISTINCT FROM true
+          AND (similarity(customer_name, %s) > %s
+               OR similarity(customer_name, %s) > %s)
+        ORDER BY sim DESC
+        LIMIT 1
+    """, (customer_name, normalized, customer_name, threshold, normalized, threshold))
+    return cur.fetchone()
+
+
 def ensure_customers(conn, invoice_df: pd.DataFrame, lines_df: pd.DataFrame) -> None:
     """Ensure all customers from invoices exist in dim_customer.
 
@@ -298,6 +338,9 @@ def ensure_customers(conn, invoice_df: pd.DataFrame, lines_df: pd.DataFrame) -> 
     - ACCPAY (bills) -> supplier
     - ACCREC/Tax Invoice (sales invoices) -> customer
     - Both -> both
+
+    Uses fuzzy matching to auto-link new customers to existing ones when
+    confidence is high (>=0.85 similarity score).
     """
     if invoice_df.empty:
         return
@@ -333,24 +376,44 @@ def ensure_customers(conn, invoice_df: pd.DataFrame, lines_df: pd.DataFrame) -> 
     # Get unique customer info for inserts/updates
     unique_customers = customers.drop_duplicates(subset=['customer_id'])[['customer_id', 'customer_name']]
 
-    # Insert missing customers (batch operation for performance)
+    # Insert missing customers with fuzzy matching
     missing = unique_customers[~unique_customers['customer_id'].isin(existing.keys())]
     if not missing.empty:
-        logger.info(f"Auto-creating {len(missing)} customers from Xero")
-        # Prepare batch insert data
-        insert_data = missing.copy()
-        insert_data['customer_type'] = insert_data['customer_id'].map(
-            lambda x: customer_types.get(x, 'customer')
-        )
-        insert_data['customer_name'] = insert_data['customer_name'].fillna('Unknown Customer')
+        logger.info(f"Processing {len(missing)} new customers from Xero")
 
-        # Use batch upsert for performance (instead of row-by-row insert)
-        upsert_dataframe(
-            conn,
-            'dw.dim_customer',
-            insert_data[['customer_id', 'customer_name', 'customer_type']],
-            ('customer_id',)
-        )
+        with conn.cursor() as cur:
+            for _, row in missing.iterrows():
+                customer_id = row['customer_id']
+                customer_name = row['customer_name'] or 'Unknown Customer'
+                customer_type = customer_types.get(customer_id, 'customer')
+
+                # Check for fuzzy match to existing customer
+                match = find_customer_match(cur, customer_name, threshold=0.7)
+
+                if match and match[2] >= 0.85:
+                    # High confidence: auto-link as child of existing customer
+                    master_id = match[0]
+                    logger.info(f"Auto-linking '{customer_name}' to existing '{match[1]}' (score: {match[2]:.2f})")
+                    cur.execute("""
+                        INSERT INTO dw.dim_customer (customer_id, customer_name, customer_type, master_customer_id)
+                        VALUES (%s, %s, %s, %s)
+                        ON CONFLICT (customer_id) DO NOTHING
+                    """, (customer_id, customer_name, customer_type, master_id))
+                elif match and match[2] >= 0.7:
+                    # Medium confidence: create but log for manual review
+                    logger.warning(f"Potential match: '{customer_name}' ~ '{match[1]}' (score: {match[2]:.2f}) - manual review recommended")
+                    cur.execute("""
+                        INSERT INTO dw.dim_customer (customer_id, customer_name, customer_type)
+                        VALUES (%s, %s, %s)
+                        ON CONFLICT (customer_id) DO NOTHING
+                    """, (customer_id, customer_name, customer_type))
+                else:
+                    # No match: create new customer
+                    cur.execute("""
+                        INSERT INTO dw.dim_customer (customer_id, customer_name, customer_type)
+                        VALUES (%s, %s, %s)
+                        ON CONFLICT (customer_id) DO NOTHING
+                    """, (customer_id, customer_name, customer_type))
 
     # Update existing customers if their type needs to change (e.g., customer becomes 'both')
     for customer_id, new_type in customer_types.items():
