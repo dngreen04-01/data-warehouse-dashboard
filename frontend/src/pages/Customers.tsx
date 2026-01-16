@@ -17,6 +17,7 @@ interface Customer {
     customer_type: string;
     balance_total: number;
     archived: boolean;
+    master_customer_id: string | null;
     cluster_id: number | null;
     cluster_label: string | null;
 }
@@ -40,6 +41,7 @@ export default function Customers() {
     const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
     const [filterMarket, setFilterMarket] = useState<string>('');
     const [filterType, setFilterType] = useState<string>('');
+    const [filterDiscreteOnly, setFilterDiscreteOnly] = useState(false);
     const [showFilters, setShowFilters] = useState(false);
     const [markets, setMarkets] = useState<string[]>([]);
     const [merchantGroupOptions, setMerchantGroupOptions] = useState<string[]>([]);
@@ -88,6 +90,7 @@ export default function Customers() {
                     .order('customer_name');
                 setCustomers((fallbackData || []).map(c => ({
                     ...c,
+                    master_customer_id: c.master_customer_id || null,
                     cluster_id: null,
                     cluster_label: null
                 })));
@@ -179,6 +182,11 @@ export default function Customers() {
             result = result.filter(c => c.customer_type === filterType);
         }
 
+        // Apply discrete customers filter (masters only - no merged children)
+        if (filterDiscreteOnly) {
+            result = result.filter(c => c.master_customer_id === null);
+        }
+
         // Apply sorting
         result.sort((a, b) => {
             let aVal = a[sortField] ?? '';
@@ -198,7 +206,7 @@ export default function Customers() {
         });
 
         return result;
-    }, [customers, searchQuery, filterMarket, filterType, sortField, sortDirection]);
+    }, [customers, searchQuery, filterMarket, filterType, filterDiscreteOnly, sortField, sortDirection]);
 
     const filteredMerchantGroups = useMemo(() => {
         if (!merchantGroupSearch) return merchantGroupRows;
@@ -212,10 +220,11 @@ export default function Customers() {
     const clearFilters = () => {
         setFilterMarket('');
         setFilterType('');
+        setFilterDiscreteOnly(false);
         setSearchQuery('');
     };
 
-    const activeFilterCount = [filterMarket, filterType].filter(Boolean).length;
+    const activeFilterCount = [filterMarket, filterType, filterDiscreteOnly].filter(Boolean).length;
 
     const openEditModal = (customer: Customer) => {
         setEditingCustomer(customer);
@@ -439,6 +448,23 @@ export default function Customers() {
                                         <option value="supplier">Supplier</option>
                                         <option value="both">Both</option>
                                     </select>
+                                </div>
+                                <div className="flex items-center">
+                                    <label className="relative inline-flex cursor-pointer items-center">
+                                        <input
+                                            type="checkbox"
+                                            checked={filterDiscreteOnly}
+                                            onChange={(e) => setFilterDiscreteOnly(e.target.checked)}
+                                            className="peer sr-only"
+                                        />
+                                        <div className="peer h-6 w-11 rounded-full bg-gray-200 after:absolute after:left-[2px] after:top-[2px] after:h-5 after:w-5 after:rounded-full after:border after:border-gray-300 after:bg-white after:transition-all after:content-[''] peer-checked:bg-blue-600 peer-checked:after:translate-x-full peer-checked:after:border-white peer-focus:ring-2 peer-focus:ring-blue-300"></div>
+                                        <span className="ml-3 text-sm font-medium text-gray-700">
+                                            Discrete only
+                                        </span>
+                                    </label>
+                                    <span className="ml-2 text-xs text-gray-500" title="Hide merged child customers, show only masters and standalone customers">
+                                        (hide merged)
+                                    </span>
                                 </div>
                             </div>
                         </div>
