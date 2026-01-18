@@ -19,7 +19,7 @@ This foundation enables future modules: Production Planning (how much to produce
 ## Progress
 
 - [x] Milestone 1: Database schema extensions for unit multipliers (2026-01-19)
-- [ ] Milestone 2: Backend RPCs for aggregated cluster analytics
+- [x] Milestone 2: Backend RPCs for aggregated cluster analytics (2026-01-19)
 - [ ] Milestone 3: Frontend - Unit multiplier capture in ClusterManagement
 - [ ] Milestone 4: Frontend - Cluster analytics dashboard component
 
@@ -50,6 +50,21 @@ This foundation enables future modules: Production Planning (how much to produce
 - Updated `get_cluster_members` RPC to return `unit_multiplier` for products
 - Created `update_product_unit_multiplier` RPC for editing multipliers
 - Created `update_cluster_base_unit_label` RPC for editing cluster unit labels
+
+### Milestone 2 (2026-01-19)
+- Created migration `20260119_cluster_analytics_rpcs.sql` with all analytics functions
+- **get_product_cluster_summary()**: Returns aggregated stats for all product clusters
+  - Includes: product_count, total_units_on_hand, total_units_sold_30d/90d, total_revenue_30d/90d
+  - Uses CTEs for efficient calculation across cluster products, sales, and inventory
+- **get_cluster_product_details(p_cluster_id)**: Returns products within a cluster
+  - Shows: raw quantities, unit_multiplier, and calculated base units (units_on_hand, units_sold_30d)
+  - Includes revenue_30d for each product
+- **get_cluster_sales_timeseries(p_cluster_id, p_start_date, p_end_date)**: Daily time series
+  - Uses generate_series for continuous date range (no gaps on days without sales)
+  - Returns total_units_sold and total_revenue per day
+- **mart.cluster_units_summary view**: Dashboard-ready summary view
+  - Includes calculated `estimated_days_of_stock` based on 30-day sales rate
+  - Returns 0 for metrics when no data (not NULL)
 
 ## Context and Orientation
 
@@ -230,11 +245,11 @@ psql -c "SELECT * FROM get_cluster_product_details(1);"  -- replace 1 with actua
 
 ### Completion Criteria
 
-- [ ] All three RPCs created and return correct data types
-- [ ] Aggregations correctly apply unit_multiplier
-- [ ] RPCs handle clusters with no sales gracefully (return 0, not NULL)
-- [ ] View `mart.cluster_units_summary` created
-- Update Progress section, commit with message "Add cluster analytics RPCs with unit multiplier aggregation"
+- [x] All three RPCs created and return correct data types
+- [x] Aggregations correctly apply unit_multiplier
+- [x] RPCs handle clusters with no sales gracefully (return 0, not NULL)
+- [x] View `mart.cluster_units_summary` created
+- [x] Update Progress section, commit with message "Add cluster analytics RPCs with unit multiplier aggregation"
 
 ---
 
