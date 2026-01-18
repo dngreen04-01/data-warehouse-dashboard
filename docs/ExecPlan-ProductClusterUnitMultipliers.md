@@ -21,7 +21,7 @@ This foundation enables future modules: Production Planning (how much to produce
 - [x] Milestone 1: Database schema extensions for unit multipliers (2026-01-19)
 - [x] Milestone 2: Backend RPCs for aggregated cluster analytics (2026-01-19)
 - [x] Milestone 3: Frontend - Unit multiplier capture in ClusterManagement (2026-01-19)
-- [ ] Milestone 4: Frontend - Cluster analytics dashboard component
+- [x] Milestone 4: Frontend - Cluster analytics dashboard component (2026-01-19)
 
 ## Surprises & Discoveries
 
@@ -83,6 +83,26 @@ This foundation enables future modules: Production Planning (how much to produce
   - `manage_cluster_member` passes `p_unit_multiplier` when adding products
   - `update_product_unit_multiplier` called for inline multiplier edits
   - `update_cluster_base_unit_label` called for base unit updates
+
+### Milestone 4 (2026-01-19)
+- Created new `ClusterAnalytics.tsx` page at `/cluster-analytics`
+- **Summary cards grid**: Displays all product clusters with key metrics
+  - Units on hand, units sold (30d), revenue (30d), estimated days of stock
+  - Click to select for drill-down, visual selection state with ring
+  - Color-coded days of stock (red <30, amber <90, green ≥90)
+- **Time-series chart**: Interactive sales trend using Recharts
+  - ComposedChart with bars (units sold) and line (revenue)
+  - Date range selector for custom period analysis
+  - Dual Y-axes for units and revenue
+  - Custom tooltip showing both metrics with base unit label
+- **Product details table**: Sortable drill-down for selected cluster
+  - Columns: Product (name + SKU), Multiplier, Units On Hand, Units Sold (30d), Revenue (30d)
+  - Shows both raw quantities (pcs) and calculated units
+  - Footer row with totals
+  - Click column headers to sort
+- **Number formatting**: Large numbers formatted as K/M (e.g., 1.2M clips, $50K)
+- **Navigation**: Added route and sidebar link with PieChart icon
+- **RPC integration**: Uses `get_product_cluster_summary`, `get_cluster_product_details`, `get_cluster_sales_timeseries`
 
 ## Context and Orientation
 
@@ -437,13 +457,13 @@ Manual verification:
 
 ### Completion Criteria
 
-- [ ] ClusterAnalytics page created and accessible via route
-- [ ] Summary cards display aggregated cluster data
-- [ ] Product details table shows drill-down data with multipliers applied
-- [ ] Numbers formatted for readability (1.2M, 50K)
-- [ ] Navigation link added to reach the page
-- [ ] No console errors
-- Update Progress section, commit with message "Add Cluster Analytics dashboard for production planning"
+- [x] ClusterAnalytics page created and accessible via route
+- [x] Summary cards display aggregated cluster data
+- [x] Product details table shows drill-down data with multipliers applied
+- [x] Numbers formatted for readability (1.2M, 50K)
+- [x] Navigation link added to reach the page
+- [x] No console errors
+- [x] Update Progress section, commit with message "Add Cluster Analytics dashboard for production planning"
 
 ---
 

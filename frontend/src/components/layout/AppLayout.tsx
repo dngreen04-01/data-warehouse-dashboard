@@ -16,7 +16,8 @@ import {
     MessageSquare,
     Mail,
     Factory,
-    Calendar
+    Calendar,
+    PieChart
 } from 'lucide-react';
 import { Link, useLocation } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
@@ -31,6 +32,7 @@ const navigation = [
     { name: 'Data Maintenance', href: '/maintenance', icon: GitMerge, description: 'Match & consolidate data' },
     { name: 'Statements', href: '/statements', icon: FileText, description: 'Outstanding invoices' },
     { name: 'Clusters', href: '/clusters', icon: Users, description: 'Customer segments' },
+    { name: 'Cluster Analytics', href: '/cluster-analytics', icon: PieChart, description: 'Production planning' },
     { name: 'CRM', href: '/crm', icon: MessageSquare, description: 'Email insights' },
     { name: 'Email Reports', href: '/email-subscriptions', icon: Mail, description: 'Manage weekly reports' },
 ];

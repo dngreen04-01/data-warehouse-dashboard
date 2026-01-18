@@ -9,6 +9,7 @@ import Dashboard from '@/pages/Dashboard';
 import ProductCalendar from '@/pages/ProductCalendar';
 import Statements from '@/pages/Statements';
 import ClusterManagement from '@/pages/ClusterManagement';
+import ClusterAnalytics from '@/pages/ClusterAnalytics';
 import Customers from '@/pages/Customers';
 import Products from '@/pages/Products';
 import Manufacturing from '@/pages/Manufacturing';
@@ -72,6 +73,14 @@ export default function App() {
             element={
               <ProtectedRoute>
                 <ClusterManagement />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/cluster-analytics"
+            element={
+              <ProtectedRoute>
+                <ClusterAnalytics />
               </ProtectedRoute>
             }
           />
