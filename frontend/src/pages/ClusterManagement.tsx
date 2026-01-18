@@ -8,11 +8,13 @@ interface Cluster {
     cluster_label: string;
     cluster_type: string;
     member_count: number;
+    base_unit_label?: string;  // For product clusters - e.g., "clips", "units"
 }
 
 interface Member {
     id: string;
     name: string;
+    unit_multiplier?: number;  // For product clusters - how many base units this product represents
 }
 
 interface SearchResult {
@@ -29,6 +31,7 @@ export default function ClusterManagement() {
     const [members, setMembers] = useState<Member[]>([]);
     const [membersLoading, setMembersLoading] = useState(false);
     const [newClusterName, setNewClusterName] = useState('');
+    const [newClusterBaseUnit, setNewClusterBaseUnit] = useState('units');
     const [isCreating, setIsCreating] = useState(false);
     const [searchQuery, setSearchQuery] = useState('');
     const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
@@ -37,6 +40,19 @@ export default function ClusterManagement() {
     // Rename state
     const [editingClusterId, setEditingClusterId] = useState<number | null>(null);
     const [editingName, setEditingName] = useState('');
+
+    // Unit multiplier modal state (for adding products to cluster)
+    const [showMultiplierModal, setShowMultiplierModal] = useState(false);
+    const [pendingProduct, setPendingProduct] = useState<SearchResult | null>(null);
+    const [pendingMultiplier, setPendingMultiplier] = useState('1');
+
+    // Inline multiplier editing state
+    const [editingMemberId, setEditingMemberId] = useState<string | null>(null);
+    const [editingMultiplier, setEditingMultiplier] = useState('');
+
+    // Base unit label editing state
+    const [editingBaseUnitLabel, setEditingBaseUnitLabel] = useState(false);
+    const [newBaseUnitLabel, setNewBaseUnitLabel] = useState('');
 
     useEffect(() => {
         fetchClusters();
@@ -95,12 +111,18 @@ export default function ClusterManagement() {
     const createCluster = async () => {
         if (!newClusterName.trim()) return;
         try {
-            const { error } = await supabase.rpc('create_cluster', {
+            const rpcParams: Record<string, string> = {
                 p_label: newClusterName.trim(),
                 p_type: activeTab
-            });
+            };
+            // Include base_unit_label for product clusters
+            if (activeTab === 'product') {
+                rpcParams.p_base_unit_label = newClusterBaseUnit.trim() || 'units';
+            }
+            const { error } = await supabase.rpc('create_cluster', rpcParams);
             if (error) throw error;
             setNewClusterName('');
+            setNewClusterBaseUnit('units');
             setIsCreating(false);
             fetchClusters();
         } catch (error) {
@@ -130,6 +152,24 @@ export default function ClusterManagement() {
         }
     };
 
+    const updateBaseUnitLabel = async () => {
+        if (!selectedCluster || !newBaseUnitLabel.trim()) return;
+        try {
+            const { error } = await supabase.rpc('update_cluster_base_unit_label', {
+                p_cluster_id: selectedCluster.cluster_id,
+                p_base_unit_label: newBaseUnitLabel.trim()
+            });
+            if (error) throw error;
+            setEditingBaseUnitLabel(false);
+            // Update local state
+            setSelectedCluster({ ...selectedCluster, base_unit_label: newBaseUnitLabel.trim() });
+            fetchClusters(); // Refresh the cluster list
+        } catch (error) {
+            console.error('Error updating base unit label:', error);
+            alert('Failed to update base unit label. Please try again.');
+        }
+    };
+
     const deleteCluster = async (id: number) => {
         if (!confirm('Are you sure? This will remove all members from this cluster.')) return;
         try {
@@ -145,15 +185,45 @@ export default function ClusterManagement() {
         }
     };
 
-    const addMember = async (entityId: string) => {
+    const handleProductClick = (result: SearchResult) => {
+        if (activeTab === 'product') {
+            // Show modal to enter unit multiplier
+            setPendingProduct(result);
+            setPendingMultiplier('1');
+            setShowMultiplierModal(true);
+        } else {
+            // For customers, add directly
+            addMember(result.id, 1);
+        }
+    };
+
+    const confirmAddProduct = () => {
+        if (!pendingProduct) return;
+        const multiplier = parseFloat(pendingMultiplier) || 1;
+        if (multiplier <= 0) {
+            alert('Unit multiplier must be greater than 0');
+            return;
+        }
+        addMember(pendingProduct.id, multiplier);
+        setShowMultiplierModal(false);
+        setPendingProduct(null);
+        setPendingMultiplier('1');
+    };
+
+    const addMember = async (entityId: string, unitMultiplier: number = 1) => {
         if (!selectedCluster) return;
         try {
-            const { error } = await supabase.rpc('manage_cluster_member', {
+            const rpcParams: Record<string, unknown> = {
                 p_type: activeTab,
                 p_action: 'add',
                 p_cluster_id: selectedCluster.cluster_id,
                 p_entity_id: entityId
-            });
+            };
+            // Include unit_multiplier for product clusters
+            if (activeTab === 'product') {
+                rpcParams.p_unit_multiplier = unitMultiplier;
+            }
+            const { error } = await supabase.rpc('manage_cluster_member', rpcParams);
             if (error) throw error;
             fetchMembers(selectedCluster.cluster_id);
             fetchClusters(); // Refresh counts
@@ -180,6 +250,29 @@ export default function ClusterManagement() {
         } catch (error) {
             console.error('Error removing member:', error);
             alert('Failed to remove member. Please try again.');
+        }
+    };
+
+    const updateMemberMultiplier = async (productId: string) => {
+        const multiplier = parseFloat(editingMultiplier);
+        if (isNaN(multiplier) || multiplier <= 0) {
+            alert('Unit multiplier must be a positive number');
+            return;
+        }
+        try {
+            const { error } = await supabase.rpc('update_product_unit_multiplier', {
+                p_product_id: parseInt(productId),
+                p_unit_multiplier: multiplier
+            });
+            if (error) throw error;
+            setEditingMemberId(null);
+            setEditingMultiplier('');
+            if (selectedCluster) {
+                fetchMembers(selectedCluster.cluster_id);
+            }
+        } catch (error) {
+            console.error('Error updating multiplier:', error);
+            alert('Failed to update multiplier. Please try again.');
         }
     };
 
@@ -263,6 +356,10 @@ export default function ClusterManagement() {
         setEditingName('');
     };
 
+    const formatMultiplier = (value: number) => {
+        return value.toLocaleString('en-NZ', { maximumFractionDigits: 4 });
+    };
+
     return (
         <div className="space-y-6">
             <div className="flex items-center justify-between">
@@ -319,37 +416,60 @@ export default function ClusterManagement() {
                     </div>
 
                     {isCreating && (
-                        <div className="mb-4 flex gap-2">
+                        <div className="mb-4 space-y-2">
                             <input
                                 autoFocus
                                 type="text"
-                                className="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                                placeholder="New Cluster Name"
+                                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                                placeholder="Cluster Name"
                                 value={newClusterName}
                                 onChange={(e) => setNewClusterName(e.target.value)}
                                 onKeyDown={(e) => {
-                                    if (e.key === 'Enter') createCluster();
+                                    if (e.key === 'Enter' && activeTab !== 'product') createCluster();
                                     if (e.key === 'Escape') {
                                         setIsCreating(false);
                                         setNewClusterName('');
+                                        setNewClusterBaseUnit('units');
                                     }
                                 }}
                             />
-                            <button
-                                onClick={createCluster}
-                                className="p-2 text-green-600 hover:bg-green-50 rounded-lg transition-colors"
-                            >
-                                <Check className="h-4 w-4" />
-                            </button>
-                            <button
-                                onClick={() => {
-                                    setIsCreating(false);
-                                    setNewClusterName('');
-                                }}
-                                className="p-2 text-gray-500 hover:bg-gray-50 rounded-lg transition-colors"
-                            >
-                                <X className="h-4 w-4" />
-                            </button>
+                            {activeTab === 'product' && (
+                                <input
+                                    type="text"
+                                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                                    placeholder="Base unit (e.g., clips, meters, grams)"
+                                    value={newClusterBaseUnit}
+                                    onChange={(e) => setNewClusterBaseUnit(e.target.value)}
+                                    onKeyDown={(e) => {
+                                        if (e.key === 'Enter') createCluster();
+                                        if (e.key === 'Escape') {
+                                            setIsCreating(false);
+                                            setNewClusterName('');
+                                            setNewClusterBaseUnit('units');
+                                        }
+                                    }}
+                                />
+                            )}
+                            <div className="flex gap-2 justify-end">
+                                <button
+                                    onClick={createCluster}
+                                    className="px-3 py-1.5 text-sm text-green-600 hover:bg-green-50 rounded-lg transition-colors flex items-center gap-1"
+                                >
+                                    <Check className="h-4 w-4" />
+                                    Create
+                                </button>
+                                <button
+                                    onClick={() => {
+                                        setIsCreating(false);
+                                        setNewClusterName('');
+                                        setNewClusterBaseUnit('units');
+                                    }}
+                                    className="px-3 py-1.5 text-sm text-gray-500 hover:bg-gray-50 rounded-lg transition-colors flex items-center gap-1"
+                                >
+                                    <X className="h-4 w-4" />
+                                    Cancel
+                                </button>
+                            </div>
                         </div>
                     )}
 
@@ -418,6 +538,11 @@ export default function ClusterManagement() {
                                                 <span className="ml-2 text-xs text-gray-500">
                                                     ({cluster.member_count || 0})
                                                 </span>
+                                                {activeTab === 'product' && cluster.base_unit_label && (
+                                                    <span className="ml-2 text-xs text-blue-500">
+                                                        · {cluster.base_unit_label}
+                                                    </span>
+                                                )}
                                             </div>
                                             <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                                                 <button
@@ -456,9 +581,60 @@ export default function ClusterManagement() {
                             <div className="mb-6 flex items-center justify-between border-b pb-4">
                                 <div>
                                     <h2 className="text-lg font-bold text-gray-900">{selectedCluster.cluster_label}</h2>
-                                    <p className="text-sm text-gray-500">
-                                        {members.length} {activeTab === 'customer' ? 'Customers' : 'Products'}
-                                    </p>
+                                    <div className="flex items-center gap-2 mt-1">
+                                        <p className="text-sm text-gray-500">
+                                            {members.length} {activeTab === 'customer' ? 'Customers' : 'Products'}
+                                        </p>
+                                        {activeTab === 'product' && (
+                                            <>
+                                                <span className="text-gray-300">·</span>
+                                                {editingBaseUnitLabel ? (
+                                                    <div className="flex items-center gap-1">
+                                                        <input
+                                                            autoFocus
+                                                            type="text"
+                                                            className="w-24 rounded border border-gray-300 px-2 py-0.5 text-sm focus:border-blue-500 focus:outline-none"
+                                                            value={newBaseUnitLabel}
+                                                            onChange={(e) => setNewBaseUnitLabel(e.target.value)}
+                                                            onKeyDown={(e) => {
+                                                                if (e.key === 'Enter') updateBaseUnitLabel();
+                                                                if (e.key === 'Escape') {
+                                                                    setEditingBaseUnitLabel(false);
+                                                                    setNewBaseUnitLabel('');
+                                                                }
+                                                            }}
+                                                        />
+                                                        <button
+                                                            onClick={updateBaseUnitLabel}
+                                                            className="p-0.5 text-green-600 hover:bg-green-50 rounded"
+                                                        >
+                                                            <Check className="h-3.5 w-3.5" />
+                                                        </button>
+                                                        <button
+                                                            onClick={() => {
+                                                                setEditingBaseUnitLabel(false);
+                                                                setNewBaseUnitLabel('');
+                                                            }}
+                                                            className="p-0.5 text-gray-500 hover:bg-gray-50 rounded"
+                                                        >
+                                                            <X className="h-3.5 w-3.5" />
+                                                        </button>
+                                                    </div>
+                                                ) : (
+                                                    <button
+                                                        onClick={() => {
+                                                            setNewBaseUnitLabel(selectedCluster.base_unit_label || 'units');
+                                                            setEditingBaseUnitLabel(true);
+                                                        }}
+                                                        className="text-sm text-blue-600 hover:text-blue-800 flex items-center gap-1"
+                                                    >
+                                                        Base unit: {selectedCluster.base_unit_label || 'units'}
+                                                        <Pencil className="h-3 w-3" />
+                                                    </button>
+                                                )}
+                                            </>
+                                        )}
+                                    </div>
                                 </div>
                             </div>
 
@@ -482,7 +658,7 @@ export default function ClusterManagement() {
                                         {searchResults.map((result) => (
                                             <button
                                                 key={result.id}
-                                                onClick={() => addMember(result.id)}
+                                                onClick={() => handleProductClick(result)}
                                                 className="w-full text-left px-4 py-3 text-sm hover:bg-gray-50 border-b border-gray-100 last:border-0 flex items-center justify-between"
                                             >
                                                 <span className="font-medium text-gray-900">{result.name}</span>
@@ -518,6 +694,11 @@ export default function ClusterManagement() {
                                                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                                                     Name
                                                 </th>
+                                                {activeTab === 'product' && (
+                                                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                                        Unit Multiplier
+                                                    </th>
+                                                )}
                                                 <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
                                                     Action
                                                 </th>
@@ -529,6 +710,59 @@ export default function ClusterManagement() {
                                                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
                                                         {member.name}
                                                     </td>
+                                                    {activeTab === 'product' && (
+                                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
+                                                            {editingMemberId === member.id ? (
+                                                                <div className="flex items-center gap-2">
+                                                                    <input
+                                                                        autoFocus
+                                                                        type="number"
+                                                                        step="any"
+                                                                        min="0.0001"
+                                                                        className="w-28 rounded border border-gray-300 px-2 py-1 text-sm focus:border-blue-500 focus:outline-none"
+                                                                        value={editingMultiplier}
+                                                                        onChange={(e) => setEditingMultiplier(e.target.value)}
+                                                                        onKeyDown={(e) => {
+                                                                            if (e.key === 'Enter') updateMemberMultiplier(member.id);
+                                                                            if (e.key === 'Escape') {
+                                                                                setEditingMemberId(null);
+                                                                                setEditingMultiplier('');
+                                                                            }
+                                                                        }}
+                                                                    />
+                                                                    <button
+                                                                        onClick={() => updateMemberMultiplier(member.id)}
+                                                                        className="p-1 text-green-600 hover:bg-green-50 rounded"
+                                                                    >
+                                                                        <Check className="h-4 w-4" />
+                                                                    </button>
+                                                                    <button
+                                                                        onClick={() => {
+                                                                            setEditingMemberId(null);
+                                                                            setEditingMultiplier('');
+                                                                        }}
+                                                                        className="p-1 text-gray-500 hover:bg-gray-50 rounded"
+                                                                    >
+                                                                        <X className="h-4 w-4" />
+                                                                    </button>
+                                                                </div>
+                                                            ) : (
+                                                                <button
+                                                                    onClick={() => {
+                                                                        setEditingMemberId(member.id);
+                                                                        setEditingMultiplier(String(member.unit_multiplier || 1));
+                                                                    }}
+                                                                    className="flex items-center gap-1 text-gray-600 hover:text-blue-600"
+                                                                >
+                                                                    <span>×{formatMultiplier(member.unit_multiplier || 1)}</span>
+                                                                    <span className="text-xs text-gray-400">
+                                                                        {selectedCluster.base_unit_label || 'units'}
+                                                                    </span>
+                                                                    <Pencil className="h-3 w-3 opacity-0 group-hover:opacity-100" />
+                                                                </button>
+                                                            )}
+                                                        </td>
+                                                    )}
                                                     <td className="px-6 py-4 whitespace-nowrap text-right text-sm">
                                                         <button
                                                             onClick={() => removeMember(member.id)}
@@ -557,6 +791,69 @@ export default function ClusterManagement() {
                     )}
                 </div>
             </div>
+
+            {/* Unit Multiplier Modal */}
+            {showMultiplierModal && pendingProduct && (
+                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+                    <div className="bg-white rounded-xl p-6 shadow-xl max-w-md w-full mx-4">
+                        <h3 className="text-lg font-semibold text-gray-900 mb-4">
+                            Add Product to Cluster
+                        </h3>
+                        <p className="text-sm text-gray-600 mb-4">
+                            Adding <span className="font-medium">{pendingProduct.name}</span> to{' '}
+                            <span className="font-medium">{selectedCluster?.cluster_label}</span>
+                        </p>
+                        <div className="mb-6">
+                            <label className="block text-sm font-medium text-gray-700 mb-2">
+                                Unit Multiplier
+                            </label>
+                            <div className="flex items-center gap-2">
+                                <input
+                                    autoFocus
+                                    type="number"
+                                    step="any"
+                                    min="0.0001"
+                                    className="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                                    value={pendingMultiplier}
+                                    onChange={(e) => setPendingMultiplier(e.target.value)}
+                                    onKeyDown={(e) => {
+                                        if (e.key === 'Enter') confirmAddProduct();
+                                        if (e.key === 'Escape') {
+                                            setShowMultiplierModal(false);
+                                            setPendingProduct(null);
+                                        }
+                                    }}
+                                />
+                                <span className="text-sm text-gray-500">
+                                    {selectedCluster?.base_unit_label || 'units'}
+                                </span>
+                            </div>
+                            <p className="text-xs text-gray-400 mt-2">
+                                How many base units does one of this product contain?
+                                <br />
+                                e.g., "KiwiKlip 1000" = 1000 clips
+                            </p>
+                        </div>
+                        <div className="flex gap-3 justify-end">
+                            <button
+                                onClick={() => {
+                                    setShowMultiplierModal(false);
+                                    setPendingProduct(null);
+                                }}
+                                className="px-4 py-2 text-sm text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                onClick={confirmAddProduct}
+                                className="px-4 py-2 text-sm text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors"
+                            >
+                                Add Product
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }

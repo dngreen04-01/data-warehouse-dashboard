@@ -20,7 +20,7 @@ This foundation enables future modules: Production Planning (how much to produce
 
 - [x] Milestone 1: Database schema extensions for unit multipliers (2026-01-19)
 - [x] Milestone 2: Backend RPCs for aggregated cluster analytics (2026-01-19)
-- [ ] Milestone 3: Frontend - Unit multiplier capture in ClusterManagement
+- [x] Milestone 3: Frontend - Unit multiplier capture in ClusterManagement (2026-01-19)
 - [ ] Milestone 4: Frontend - Cluster analytics dashboard component
 
 ## Surprises & Discoveries
@@ -65,6 +65,24 @@ This foundation enables future modules: Production Planning (how much to produce
 - **mart.cluster_units_summary view**: Dashboard-ready summary view
   - Includes calculated `estimated_days_of_stock` based on 30-day sales rate
   - Returns 0 for metrics when no data (not NULL)
+
+### Milestone 3 (2026-01-19)
+- Updated `ClusterManagement.tsx` with full unit multiplier support
+- **Interfaces extended**: `Cluster` now includes `base_unit_label`, `Member` includes `unit_multiplier`
+- **Cluster creation**: Product clusters now show base unit label input (e.g., "clips", "meters", "grams")
+- **Product addition modal**: When adding products to a cluster, a modal prompts for the unit multiplier
+  - Shows helpful example: "KiwiKlip 1000 = 1000 clips"
+  - Validates multiplier > 0 before submission
+- **Members table enhancements**:
+  - Added "Unit Multiplier" column for product clusters
+  - Displays formatted multiplier with base unit label (e.g., "×1,000 clips")
+  - Inline editing with input validation
+- **Base unit label editing**: Click to edit base unit label in cluster header
+- **RPC integration**:
+  - `createCluster` passes `p_base_unit_label` for product clusters
+  - `manage_cluster_member` passes `p_unit_multiplier` when adding products
+  - `update_product_unit_multiplier` called for inline multiplier edits
+  - `update_cluster_base_unit_label` called for base unit updates
 
 ## Context and Orientation
 
@@ -341,12 +359,12 @@ Manual verification steps:
 
 ### Completion Criteria
 
-- [ ] Product cluster creation shows base_unit_label input field
-- [ ] Adding product to cluster prompts for unit_multiplier
-- [ ] Members list displays multiplier with formatted number
-- [ ] Multiplier can be edited inline
-- [ ] Changes persist after page refresh
-- Update Progress section, commit with message "Add unit multiplier UI to ClusterManagement"
+- [x] Product cluster creation shows base_unit_label input field
+- [x] Adding product to cluster prompts for unit_multiplier
+- [x] Members list displays multiplier with formatted number
+- [x] Multiplier can be edited inline
+- [x] Changes persist after page refresh
+- [x] Update Progress section, commit with message "Add unit multiplier UI to ClusterManagement"
 
 ---
 
