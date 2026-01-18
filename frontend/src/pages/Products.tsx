@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
 import {
     Loader2, Search, Package, Layers,
-    ChevronDown, ChevronUp, Filter, Pencil, X, Check, Tag
+    ChevronDown, ChevronUp, Filter, Pencil, Tag
 } from 'lucide-react';
 import clsx from 'clsx';
 
@@ -20,6 +20,12 @@ interface Product {
     archived: boolean;
     cluster_id: number | null;
     cluster_label: string | null;
+    // Packaging fields
+    carton_width_mm: number | null;
+    carton_height_mm: number | null;
+    carton_depth_mm: number | null;
+    carton_weight_kg: number | null;
+    cartons_per_pallet: number | null;
 }
 
 type SortField = 'product_code' | 'item_name' | 'product_group';
@@ -36,9 +42,16 @@ export default function Products() {
     const [showFilters, setShowFilters] = useState(false);
     const [productGroups, setProductGroups] = useState<string[]>([]);
 
-    // Edit state
-    const [editingProductId, setEditingProductId] = useState<number | null>(null);
-    const [editingProductGroup, setEditingProductGroup] = useState('');
+    // Edit state - tracks the product being edited and form values
+    const [editingProduct, setEditingProduct] = useState<Product | null>(null);
+    const [editForm, setEditForm] = useState({
+        product_group: '',
+        carton_width_mm: '',
+        carton_height_mm: '',
+        carton_depth_mm: '',
+        carton_weight_kg: '',
+        cartons_per_pallet: '',
+    });
     const [saving, setSaving] = useState(false);
 
     useEffect(() => {
@@ -64,6 +77,11 @@ export default function Products() {
                     quantity_on_hand,
                     is_tracked_as_inventory,
                     archived,
+                    carton_width_mm,
+                    carton_height_mm,
+                    carton_depth_mm,
+                    carton_weight_kg,
+                    cartons_per_pallet,
                     dim_product_cluster (
                         cluster_id,
                         dim_cluster (
@@ -105,7 +123,12 @@ export default function Products() {
                     is_tracked_as_inventory: p.is_tracked_as_inventory,
                     archived: p.archived,
                     cluster_id: p.dim_product_cluster?.dim_cluster?.cluster_id ?? null,
-                    cluster_label: p.dim_product_cluster?.dim_cluster?.cluster_label ?? null
+                    cluster_label: p.dim_product_cluster?.dim_cluster?.cluster_label ?? null,
+                    carton_width_mm: p.carton_width_mm ?? null,
+                    carton_height_mm: p.carton_height_mm ?? null,
+                    carton_depth_mm: p.carton_depth_mm ?? null,
+                    carton_weight_kg: p.carton_weight_kg ?? null,
+                    cartons_per_pallet: p.cartons_per_pallet ?? null,
                 }));
                 setProducts(mappedProducts);
             }
@@ -204,32 +227,65 @@ export default function Products() {
     }, [products]);
 
     const startEditing = (product: Product) => {
-        setEditingProductId(product.product_id);
-        setEditingProductGroup(product.product_group || '');
+        setEditingProduct(product);
+        setEditForm({
+            product_group: product.product_group || '',
+            carton_width_mm: product.carton_width_mm?.toString() || '',
+            carton_height_mm: product.carton_height_mm?.toString() || '',
+            carton_depth_mm: product.carton_depth_mm?.toString() || '',
+            carton_weight_kg: product.carton_weight_kg?.toString() || '',
+            cartons_per_pallet: product.cartons_per_pallet?.toString() || '',
+        });
     };
 
     const cancelEditing = () => {
-        setEditingProductId(null);
-        setEditingProductGroup('');
+        setEditingProduct(null);
+        setEditForm({
+            product_group: '',
+            carton_width_mm: '',
+            carton_height_mm: '',
+            carton_depth_mm: '',
+            carton_weight_kg: '',
+            cartons_per_pallet: '',
+        });
     };
 
-    const saveProductGroup = async (productId: number) => {
+    const saveProduct = async () => {
+        if (!editingProduct) return;
+
         setSaving(true);
         try {
+            // Parse numeric fields - empty string becomes null (keep existing)
+            const parseIntOrNull = (val: string) => val ? parseInt(val, 10) : null;
+            const parseFloatOrNull = (val: string) => val ? parseFloat(val) : null;
+
             const { error } = await supabase.rpc('update_product', {
-                p_product_id: productId,
-                p_product_group: editingProductGroup || null
+                p_product_id: editingProduct.product_id,
+                p_product_group: editForm.product_group || null,
+                p_carton_width_mm: parseIntOrNull(editForm.carton_width_mm),
+                p_carton_height_mm: parseIntOrNull(editForm.carton_height_mm),
+                p_carton_depth_mm: parseIntOrNull(editForm.carton_depth_mm),
+                p_carton_weight_kg: parseFloatOrNull(editForm.carton_weight_kg),
+                p_cartons_per_pallet: parseIntOrNull(editForm.cartons_per_pallet),
             });
             if (error) throw error;
 
             // Update local state
             setProducts(prev => prev.map(p =>
-                p.product_id === productId
-                    ? { ...p, product_group: editingProductGroup }
+                p.product_id === editingProduct.product_id
+                    ? {
+                        ...p,
+                        product_group: editForm.product_group || p.product_group,
+                        carton_width_mm: parseIntOrNull(editForm.carton_width_mm) ?? p.carton_width_mm,
+                        carton_height_mm: parseIntOrNull(editForm.carton_height_mm) ?? p.carton_height_mm,
+                        carton_depth_mm: parseIntOrNull(editForm.carton_depth_mm) ?? p.carton_depth_mm,
+                        carton_weight_kg: parseFloatOrNull(editForm.carton_weight_kg) ?? p.carton_weight_kg,
+                        cartons_per_pallet: parseIntOrNull(editForm.cartons_per_pallet) ?? p.cartons_per_pallet,
+                    }
                     : p
             ));
             cancelEditing();
-            fetchProductGroups(); // Refresh dropdown options
+            fetchProductGroups(); // Refresh dropdown options if new group was entered
         } catch (error) {
             console.error('Error updating product:', error);
             alert('Failed to update product. Please try again.');
@@ -454,42 +510,13 @@ export default function Products() {
                                                 </div>
                                             </td>
                                             <td className="whitespace-nowrap px-6 py-4">
-                                                {editingProductId === product.product_id ? (
-                                                    <div className="flex items-center gap-2">
-                                                        <select
-                                                            value={editingProductGroup}
-                                                            onChange={(e) => setEditingProductGroup(e.target.value)}
-                                                            className="rounded-md border border-gray-300 px-2 py-1 text-sm focus:border-blue-500 focus:outline-none"
-                                                            autoFocus
-                                                        >
-                                                            <option value="">No Group</option>
-                                                            {productGroups.map(g => (
-                                                                <option key={g} value={g}>{g}</option>
-                                                            ))}
-                                                        </select>
-                                                        <button
-                                                            onClick={() => saveProductGroup(product.product_id)}
-                                                            disabled={saving}
-                                                            className="p-1 text-green-600 hover:bg-green-50 rounded disabled:opacity-50"
-                                                        >
-                                                            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
-                                                        </button>
-                                                        <button
-                                                            onClick={cancelEditing}
-                                                            className="p-1 text-gray-500 hover:bg-gray-50 rounded"
-                                                        >
-                                                            <X className="h-4 w-4" />
-                                                        </button>
-                                                    </div>
+                                                {product.product_group ? (
+                                                    <span className="inline-flex items-center gap-1.5 rounded-full bg-blue-100 px-2.5 py-0.5 text-xs font-medium text-blue-700">
+                                                        <Layers className="h-3 w-3" />
+                                                        {product.product_group}
+                                                    </span>
                                                 ) : (
-                                                    product.product_group ? (
-                                                        <span className="inline-flex items-center gap-1.5 rounded-full bg-blue-100 px-2.5 py-0.5 text-xs font-medium text-blue-700">
-                                                            <Layers className="h-3 w-3" />
-                                                            {product.product_group}
-                                                        </span>
-                                                    ) : (
-                                                        <span className="text-sm text-gray-400">-</span>
-                                                    )
+                                                    <span className="text-sm text-gray-400">-</span>
                                                 )}
                                             </td>
                                             <td className="whitespace-nowrap px-6 py-4 text-right">
@@ -528,21 +555,157 @@ export default function Products() {
                                                 )}
                                             </td>
                                             <td className="whitespace-nowrap px-6 py-4 text-right">
-                                                {editingProductId !== product.product_id && (
-                                                    <button
-                                                        onClick={() => startEditing(product)}
-                                                        className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors"
-                                                        title="Edit product group"
-                                                    >
-                                                        <Pencil className="h-4 w-4" />
-                                                    </button>
-                                                )}
+                                                <button
+                                                    onClick={() => startEditing(product)}
+                                                    className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors"
+                                                    title="Edit product"
+                                                >
+                                                    <Pencil className="h-4 w-4" />
+                                                </button>
                                             </td>
                                         </tr>
                                     ))
                                 )}
                             </tbody>
                         </table>
+                    </div>
+                </div>
+            )}
+
+            {/* Edit Product Modal */}
+            {editingProduct && (
+                <div className="fixed inset-0 z-50 overflow-y-auto">
+                    <div className="flex min-h-full items-center justify-center p-4">
+                        {/* Backdrop */}
+                        <div
+                            className="fixed inset-0 bg-black/50 transition-opacity"
+                            onClick={cancelEditing}
+                        />
+
+                        {/* Modal */}
+                        <div className="relative w-full max-w-lg rounded-xl bg-white p-6 shadow-xl">
+                            <div className="mb-6">
+                                <h2 className="text-lg font-semibold text-gray-900">Edit Product</h2>
+                                <p className="text-sm text-gray-500">{editingProduct.item_name}</p>
+                                <p className="text-xs text-gray-400 font-mono">{editingProduct.product_code}</p>
+                            </div>
+
+                            <div className="space-y-4">
+                                {/* Product Group */}
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                                        Product Group
+                                    </label>
+                                    <select
+                                        value={editForm.product_group}
+                                        onChange={(e) => setEditForm(prev => ({ ...prev, product_group: e.target.value }))}
+                                        className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                                    >
+                                        <option value="">No Group</option>
+                                        {productGroups.map(g => (
+                                            <option key={g} value={g}>{g}</option>
+                                        ))}
+                                    </select>
+                                </div>
+
+                                {/* Packaging Section Header */}
+                                <div className="border-t pt-4">
+                                    <h3 className="text-sm font-medium text-gray-900 mb-3">Carton Packaging</h3>
+                                </div>
+
+                                {/* Carton Dimensions */}
+                                <div className="grid grid-cols-3 gap-3">
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                                            Width (mm)
+                                        </label>
+                                        <input
+                                            type="number"
+                                            min="0"
+                                            value={editForm.carton_width_mm}
+                                            onChange={(e) => setEditForm(prev => ({ ...prev, carton_width_mm: e.target.value }))}
+                                            placeholder="—"
+                                            className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                                            Height (mm)
+                                        </label>
+                                        <input
+                                            type="number"
+                                            min="0"
+                                            value={editForm.carton_height_mm}
+                                            onChange={(e) => setEditForm(prev => ({ ...prev, carton_height_mm: e.target.value }))}
+                                            placeholder="—"
+                                            className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                                            Depth (mm)
+                                        </label>
+                                        <input
+                                            type="number"
+                                            min="0"
+                                            value={editForm.carton_depth_mm}
+                                            onChange={(e) => setEditForm(prev => ({ ...prev, carton_depth_mm: e.target.value }))}
+                                            placeholder="—"
+                                            className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                                        />
+                                    </div>
+                                </div>
+
+                                {/* Weight and Palletization */}
+                                <div className="grid grid-cols-2 gap-3">
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                                            Carton Weight (kg)
+                                        </label>
+                                        <input
+                                            type="number"
+                                            min="0"
+                                            step="0.001"
+                                            value={editForm.carton_weight_kg}
+                                            onChange={(e) => setEditForm(prev => ({ ...prev, carton_weight_kg: e.target.value }))}
+                                            placeholder="—"
+                                            className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                                            Cartons per Pallet
+                                        </label>
+                                        <input
+                                            type="number"
+                                            min="0"
+                                            value={editForm.cartons_per_pallet}
+                                            onChange={(e) => setEditForm(prev => ({ ...prev, cartons_per_pallet: e.target.value }))}
+                                            placeholder="—"
+                                            className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                                        />
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Actions */}
+                            <div className="mt-6 flex justify-end gap-3">
+                                <button
+                                    onClick={cancelEditing}
+                                    className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors"
+                                >
+                                    Cancel
+                                </button>
+                                <button
+                                    onClick={saveProduct}
+                                    disabled={saving}
+                                    className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50 transition-colors"
+                                >
+                                    {saving && <Loader2 className="h-4 w-4 animate-spin" />}
+                                    Save Changes
+                                </button>
+                            </div>
+                        </div>
                     </div>
                 </div>
             )}
