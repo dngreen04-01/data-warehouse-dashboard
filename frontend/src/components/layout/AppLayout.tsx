@@ -23,7 +23,7 @@ import { Link, useLocation } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import clsx from 'clsx';
 
-const navigation = [
+const internalNavigation = [
     { name: 'Dashboard', href: '/', icon: LayoutDashboard, description: 'Sales overview & analytics' },
     { name: 'Product Calendar', href: '/product-calendar', icon: Calendar, description: 'Monthly sales matrix' },
     { name: 'Customers', href: '/customers', icon: UserCircle, description: 'Manage customer records' },
@@ -37,11 +37,18 @@ const navigation = [
     { name: 'Email Reports', href: '/email-subscriptions', icon: Mail, description: 'Manage weekly reports' },
 ];
 
+const supplierNavigation = [
+    { name: 'Stock Holdings', href: '/supplier/stock', icon: Package, description: 'Enter weekly stock levels' },
+];
+
 
 export default function AppLayout({ children }: { children: ReactNode }) {
     const [sidebarOpen, setSidebarOpen] = useState(false);
     const location = useLocation();
     const { signOut, user, isSuperUser, role } = useAuth();
+
+    const isSupplier = role === 'supplier';
+    const navigation = isSupplier ? supplierNavigation : internalNavigation;
 
     return (
         <div className="min-h-screen bg-gray-50">
@@ -188,9 +195,11 @@ export default function AppLayout({ children }: { children: ReactNode }) {
                                             ? 'bg-purple-100 text-purple-700'
                                             : role === 'administration'
                                             ? 'bg-blue-100 text-blue-700'
+                                            : role === 'supplier'
+                                            ? 'bg-orange-100 text-orange-700'
                                             : 'bg-green-100 text-green-700'
                                     )}>
-                                        {role === 'super_user' ? 'Super User' : role === 'administration' ? 'Admin' : 'Sales'}
+                                        {role === 'super_user' ? 'Super User' : role === 'administration' ? 'Admin' : role === 'supplier' ? 'Supplier' : 'Sales'}
                                     </span>
                                 )}
                             </div>

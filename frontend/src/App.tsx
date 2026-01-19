@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { AuthProvider, useAuth } from '@/contexts/AuthContext';
 import Login from '@/pages/Login';
 import ResetPassword from '@/pages/ResetPassword';
@@ -18,9 +18,11 @@ import DataMaintenance from '@/pages/DataMaintenance';
 import CRM from '@/pages/CRM';
 import EmailSubscriptions from '@/pages/EmailSubscriptions';
 import UserManagement from '@/pages/UserManagement';
+import SupplierStock from '@/pages/SupplierStock';
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
-  const { user, loading } = useAuth();
+  const { user, loading, role } = useAuth();
+  const location = useLocation();
 
   if (loading) {
     return (
@@ -32,6 +34,12 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
 
   if (!user) {
     return <Navigate to="/login" replace />;
+  }
+
+  // Redirect suppliers to their portal if they try to access internal pages
+  const isSupplierRoute = location.pathname.startsWith('/supplier');
+  if (role === 'supplier' && !isSupplierRoute) {
+    return <Navigate to="/supplier/stock" replace />;
   }
 
   return <AppLayout>{children}</AppLayout>;
@@ -145,6 +153,14 @@ export default function App() {
             element={
               <ProtectedRoute>
                 <UserManagement />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/supplier/stock"
+            element={
+              <ProtectedRoute>
+                <SupplierStock />
               </ProtectedRoute>
             }
           />

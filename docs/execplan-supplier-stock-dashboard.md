@@ -14,11 +14,13 @@ After this change, suppliers can log into a dedicated portal and enter their wee
 
 - [x] Milestone 1: Database schema for supplier stock entries and supplier role
 - [x] Milestone 2: Backend API endpoints for stock data
-- [ ] Milestone 3: Supplier portal frontend with stock entry page
+- [x] Milestone 3: Supplier portal frontend with stock entry page
 
 ## Surprises & Discoveries
 
-(To be populated during implementation.)
+- AppLayout already had role-based rendering patterns (admin section for super_user) that made adding supplier navigation straightforward
+- AuthContext path was `@/contexts/` not `@/context/` as initially expected
+- Role badge display needed updating to show "Supplier" with appropriate orange color styling
 
 ## Decision Log
 
@@ -31,7 +33,20 @@ After this change, suppliers can log into a dedicated portal and enter their wee
 
 ## Outcomes & Retrospective
 
-(To be populated during and after implementation.)
+**Completed**: All three milestones implemented successfully.
+
+**Files Created/Modified**:
+- `supabase/migrations/20260120_supplier_stock.sql` - Database schema and RPC functions
+- `api/main.py` - Three new supplier API endpoints
+- `frontend/src/pages/SupplierStock.tsx` - New supplier stock entry page
+- `frontend/src/App.tsx` - Added supplier route and role-based redirect logic
+- `frontend/src/components/layout/AppLayout.tsx` - Added supplier navigation and role badge
+
+**Key Implementation Details**:
+- Suppliers are automatically redirected to `/supplier/stock` when accessing internal pages
+- Internal users see the standard navigation; suppliers see only supplier-specific navigation
+- Super users can access the supplier portal for testing purposes
+- Role badge shows "Supplier" with orange styling for visual distinction
 
 ## Context and Orientation
 
