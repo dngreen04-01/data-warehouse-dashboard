@@ -22,7 +22,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 import httpx
 
-from api.auth import get_current_user, require_auth, UserClaims
+from api.auth import get_current_user, require_auth, require_role, UserClaims
 
 # Import PDF generator
 import sys
@@ -45,7 +45,7 @@ app = FastAPI(
 )
 
 # CORS for frontend - parameterized for Cloud Run deployment
-ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "http://localhost:5173,http://localhost:3000").split(",")
+ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "http://localhost:5173,http://localhost:5174,http://localhost:3000").split(",")
 
 app.add_middleware(
     CORSMiddleware,
@@ -947,6 +947,177 @@ async def revoke_invitation(
             conn.commit()
 
         return {"success": success}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# =============================================================================
+# Supplier Stock Entry Endpoints
+# =============================================================================
+
+# Pydantic models for supplier stock
+class ProductForStock(BaseModel):
+    product_id: int
+    product_code: str
+    item_name: str
+    cluster_id: Optional[int] = None
+    cluster_label: Optional[str] = None
+    current_week_qty: Optional[int] = None
+    previous_week_qty: Optional[int] = None
+
+
+class ClusterWithProducts(BaseModel):
+    cluster_id: Optional[int] = None
+    cluster_label: str
+    products: List[ProductForStock]
+
+
+class StockEntry(BaseModel):
+    product_id: int
+    quantity_on_hand: int
+
+
+class SaveStockRequest(BaseModel):
+    entries: List[StockEntry]
+
+
+@app.get("/api/supplier/products", response_model=List[ClusterWithProducts])
+async def get_supplier_products(
+    current_user: UserClaims = Depends(require_role(["supplier", "super_user"]))
+):
+    """Get all products grouped by cluster for supplier stock entry."""
+    try:
+        with get_db_connection() as conn:
+            with conn.cursor(row_factory=dict_row) as cur:
+                # Get products with cluster info
+                cur.execute("""
+                    SELECT
+                        p.product_id,
+                        p.product_code,
+                        p.item_name,
+                        c.cluster_id,
+                        c.cluster_label
+                    FROM dw.dim_product p
+                    LEFT JOIN dw.dim_product_cluster pc ON p.product_id = pc.product_id
+                    LEFT JOIN dw.dim_cluster c ON pc.cluster_id = c.cluster_id AND c.cluster_type = 'product'
+                    WHERE p.archived = false
+                      AND p.is_tracked_as_inventory = true
+                    ORDER BY c.cluster_label NULLS LAST, p.item_name
+                """)
+                products = cur.fetchall()
+
+                # Get stock entries for this user
+                cur.execute("""
+                    SELECT product_id, current_week_qty, previous_week_qty
+                    FROM public.get_supplier_stock_entries(%s)
+                """, (current_user.sub,))
+                stock_rows = cur.fetchall()
+                stock_entries = {
+                    row["product_id"]: {
+                        "current": row["current_week_qty"],
+                        "previous": row["previous_week_qty"]
+                    }
+                    for row in stock_rows
+                }
+
+        # Group products by cluster
+        clusters: dict = {}
+        for row in products:
+            product_id = row["product_id"]
+            cluster_id = row["cluster_id"]
+            cluster_label = row["cluster_label"] if row["cluster_label"] else "Unclustered"
+
+            # Use cluster_id as key, or 0 for unclustered
+            key = cluster_id if cluster_id else 0
+
+            if key not in clusters:
+                clusters[key] = {
+                    "cluster_id": cluster_id,
+                    "cluster_label": cluster_label,
+                    "products": []
+                }
+
+            stock = stock_entries.get(product_id, {"current": None, "previous": None})
+            clusters[key]["products"].append({
+                "product_id": product_id,
+                "product_code": row["product_code"],
+                "item_name": row["item_name"],
+                "cluster_id": cluster_id,
+                "cluster_label": row["cluster_label"],
+                "current_week_qty": stock["current"],
+                "previous_week_qty": stock["previous"]
+            })
+
+        # Sort clusters: named clusters first (alphabetically), then Unclustered
+        result = sorted(
+            clusters.values(),
+            key=lambda c: (c["cluster_id"] is None, c["cluster_label"])
+        )
+        return result
+
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/supplier/stock")
+async def save_supplier_stock(
+    request: SaveStockRequest,
+    current_user: UserClaims = Depends(require_role(["supplier", "super_user"]))
+):
+    """Save supplier stock entries for the current week."""
+    if not request.entries:
+        return {"status": "ok", "message": "No entries to save", "entries_saved": 0}
+
+    try:
+        with get_db_connection() as conn:
+            with conn.cursor() as cur:
+                # Get current week ending
+                cur.execute("SELECT dw.get_week_ending(CURRENT_DATE)")
+                week_ending = cur.fetchone()[0]
+
+                # Upsert each entry
+                for entry in request.entries:
+                    cur.execute("""
+                        INSERT INTO dw.supplier_stock_entry
+                            (user_id, product_id, quantity_on_hand, week_ending)
+                        VALUES (%s, %s, %s, %s)
+                        ON CONFLICT (user_id, product_id, week_ending)
+                        DO UPDATE SET
+                            quantity_on_hand = EXCLUDED.quantity_on_hand,
+                            updated_at = timezone('utc', now())
+                    """, (current_user.sub, entry.product_id, entry.quantity_on_hand, week_ending))
+
+            conn.commit()
+
+        return {
+            "status": "ok",
+            "message": f"Saved {len(request.entries)} entries for week ending {week_ending}",
+            "week_ending": str(week_ending),
+            "entries_saved": len(request.entries)
+        }
+
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/supplier/current-week")
+async def get_current_week(
+    current_user: UserClaims = Depends(require_role(["supplier", "super_user"]))
+):
+    """Get the current week ending date for display purposes."""
+    try:
+        with get_db_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT dw.get_week_ending(CURRENT_DATE)")
+                week_ending = cur.fetchone()[0]
+                return {
+                    "week_ending": str(week_ending),
+                    "week_ending_formatted": week_ending.strftime("%B %d, %Y")
+                }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

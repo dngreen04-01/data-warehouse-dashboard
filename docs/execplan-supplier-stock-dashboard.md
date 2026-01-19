@@ -13,7 +13,7 @@ After this change, suppliers can log into a dedicated portal and enter their wee
 ## Progress
 
 - [x] Milestone 1: Database schema for supplier stock entries and supplier role
-- [ ] Milestone 2: Backend API endpoints for stock data
+- [x] Milestone 2: Backend API endpoints for stock data
 - [ ] Milestone 3: Supplier portal frontend with stock entry page
 
 ## Surprises & Discoveries
