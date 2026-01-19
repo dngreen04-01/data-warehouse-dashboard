@@ -15,13 +15,13 @@ To see it working: navigate to the Products page, click "Export Price List", sel
 ## Progress
 
 - [x] Milestone 1: Database schema changes (add price_list_price and bulk_price columns, update RPC)
-- [ ] Milestone 2: Backend PDF generation (create PriceListPDF class and API endpoint)
+- [x] Milestone 2: Backend PDF generation (create PriceListPDF class and API endpoint)
 - [ ] Milestone 3: Frontend integration (export button, modal, edit fields for pricing)
 
 
 ## Surprises & Discoveries
 
-(To be populated during implementation.)
+- **Logo file not provided**: The Klipon logo SVG was not found in the project. The PDF generator checks for `scripts/assets/klipon-logo.png` and gracefully skips the logo if not present. To add the logo: export the Klipon SVG to PNG (approximately 200x100 pixels) and save as `scripts/assets/klipon-logo.png`.
 
 
 ## Decision Log

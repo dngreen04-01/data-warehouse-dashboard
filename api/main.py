@@ -29,6 +29,7 @@ import sys
 sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from generate_statement_pdf import fetch_statement_data, StatementPDF, format_currency
+from generate_price_list_pdf import fetch_products as fetch_price_list_products, generate_price_list_pdf
 from src.reporting.sales_report import process_queue
 from src.ingestion.xero_inventory import XeroInventoryAdjuster, InventoryItem
 from src.ingestion.sync_xero import XeroClient, XeroCredentials
@@ -233,6 +234,40 @@ async def generate_statement_pdf(
                 }
             )
 
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/price-list/pdf")
+async def get_price_list_pdf(
+    price_source: str = "xero",
+    product_group: str | None = None
+):
+    """Generate and download PDF price list.
+
+    Args:
+        price_source: "xero" to use Xero prices, "custom" to use price_list_price
+        product_group: Optional filter by product group
+    """
+    try:
+        with get_db_connection() as conn:
+            products = fetch_price_list_products(conn, price_source, product_group)
+
+            if not products:
+                raise HTTPException(status_code=404, detail="No products found")
+
+            pdf_bytes = generate_price_list_pdf(products)
+
+            timestamp = datetime.now().strftime("%Y%m%d")
+            filename = f"Price_List_{timestamp}.pdf"
+
+            return StreamingResponse(
+                io.BytesIO(pdf_bytes),
+                media_type="application/pdf",
+                headers={"Content-Disposition": f"attachment; filename={filename}"}
+            )
     except HTTPException:
         raise
     except Exception as e:
