@@ -210,7 +210,7 @@ export default function UserManagement() {
                 throw new Error(data.detail || 'Failed to update role');
             }
 
-            setSuccess(`Role updated to ${pendingRoleChange.newRoleName} for ${pendingRoleChange.email}`);
+            setSuccess(`Role updated to ${pendingRoleChange.newRoleName} for ${pendingRoleChange.email}. They will need to log out and back in for the change to take effect.`);
             setPendingRoleChange(null);
             fetchData();
         } catch (err) {

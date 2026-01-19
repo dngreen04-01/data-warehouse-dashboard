@@ -1,8 +1,20 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
+import { useAuth } from '@/contexts/AuthContext';
 import { Loader2 } from 'lucide-react';
 
 export default function Login() {
+    const navigate = useNavigate();
+    const { user, loading: authLoading } = useAuth();
+
+    // Redirect if already authenticated
+    useEffect(() => {
+        if (!authLoading && user) {
+            navigate('/', { replace: true });
+        }
+    }, [user, authLoading, navigate]);
+
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [loading, setLoading] = useState(false);
