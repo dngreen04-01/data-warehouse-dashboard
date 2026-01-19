@@ -274,6 +274,221 @@ async def get_price_list_pdf(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# =============================================================================
+# Customer Price List Endpoints
+# =============================================================================
+
+class PriceOverrideInput(BaseModel):
+    product_id: int
+    custom_price: float
+    custom_bulk_price: float | None = None
+
+
+class CreatePriceListRequest(BaseModel):
+    name: str = "Custom Prices"
+    description: str | None = None
+    overrides: list[PriceOverrideInput] = []
+
+
+class UpdatePriceListRequest(BaseModel):
+    name: str | None = None
+    description: str | None = None
+    overrides: list[PriceOverrideInput] | None = None
+
+
+@app.get("/api/customers/{customer_id}/price-list")
+async def get_customer_price_list(customer_id: str):
+    """Get the active price list for a customer with all overrides."""
+    with get_db_connection() as conn:
+        with conn.cursor() as cur:
+            # Get customer info and price list header
+            cur.execute("""
+                SELECT c.customer_id, c.customer_name,
+                       cpl.price_list_id, cpl.name, cpl.description,
+                       cpl.effective_from, cpl.is_active
+                FROM dw.dim_customer c
+                LEFT JOIN dw.customer_price_list cpl
+                    ON cpl.customer_id = c.customer_id
+                    AND cpl.is_active = true
+                    AND cpl.effective_to IS NULL
+                WHERE c.customer_id = %s
+            """, (customer_id,))
+            row = cur.fetchone()
+
+            if not row:
+                raise HTTPException(status_code=404, detail="Customer not found")
+
+            cust_id, customer_name, price_list_id, name, description, effective_from, is_active = row
+
+            if price_list_id is None:
+                return {"customer_id": cust_id, "customer_name": customer_name, "price_list": None}
+
+            # Get overrides
+            cur.execute("""
+                SELECT cpo.override_id, cpo.product_id, p.product_code, p.item_name,
+                       p.price as default_price, cpo.custom_price, cpo.custom_bulk_price
+                FROM dw.customer_price_override cpo
+                JOIN dw.dim_product p ON p.product_id = cpo.product_id
+                WHERE cpo.price_list_id = %s
+                ORDER BY p.item_name
+            """, (price_list_id,))
+
+            overrides = [
+                {
+                    "override_id": r[0], "product_id": r[1], "product_code": r[2],
+                    "item_name": r[3], "default_price": float(r[4]) if r[4] else None,
+                    "custom_price": float(r[5]), "custom_bulk_price": float(r[6]) if r[6] else None
+                }
+                for r in cur.fetchall()
+            ]
+
+            return {
+                "customer_id": cust_id,
+                "customer_name": customer_name,
+                "price_list": {
+                    "price_list_id": price_list_id,
+                    "name": name,
+                    "description": description,
+                    "effective_from": effective_from.isoformat() if effective_from else None,
+                    "is_active": is_active,
+                    "override_count": len(overrides),
+                    "overrides": overrides
+                }
+            }
+
+
+@app.post("/api/customers/{customer_id}/price-list")
+async def create_customer_price_list(customer_id: str, request: CreatePriceListRequest):
+    """Create a new price list for a customer. Deactivates any existing active list."""
+    with get_db_connection() as conn:
+        with conn.cursor() as cur:
+            # Verify customer exists
+            cur.execute("SELECT customer_id FROM dw.dim_customer WHERE customer_id = %s", (customer_id,))
+            if not cur.fetchone():
+                raise HTTPException(status_code=404, detail="Customer not found")
+
+            # Deactivate existing active price lists
+            cur.execute("""
+                UPDATE dw.customer_price_list
+                SET is_active = false, effective_to = CURRENT_DATE
+                WHERE customer_id = %s AND is_active = true
+            """, (customer_id,))
+
+            # Create new price list
+            cur.execute("""
+                INSERT INTO dw.customer_price_list (customer_id, name, description)
+                VALUES (%s, %s, %s)
+                RETURNING price_list_id
+            """, (customer_id, request.name, request.description))
+            price_list_id = cur.fetchone()[0]
+
+            # Insert overrides
+            if request.overrides:
+                for override in request.overrides:
+                    cur.execute("""
+                        INSERT INTO dw.customer_price_override
+                            (price_list_id, product_id, custom_price, custom_bulk_price)
+                        VALUES (%s, %s, %s, %s)
+                    """, (price_list_id, override.product_id, override.custom_price, override.custom_bulk_price))
+
+            conn.commit()
+            return {"price_list_id": price_list_id, "message": "Price list created"}
+
+
+@app.put("/api/customers/{customer_id}/price-list/{price_list_id}")
+async def update_customer_price_list(customer_id: str, price_list_id: int, request: UpdatePriceListRequest):
+    """Update an existing price list."""
+    with get_db_connection() as conn:
+        with conn.cursor() as cur:
+            # Verify price list exists and belongs to customer
+            cur.execute("""
+                SELECT price_list_id FROM dw.customer_price_list
+                WHERE price_list_id = %s AND customer_id = %s AND is_active = true
+            """, (price_list_id, customer_id))
+            if not cur.fetchone():
+                raise HTTPException(status_code=404, detail="Price list not found")
+
+            # Update header fields if provided
+            if request.name is not None or request.description is not None:
+                updates = []
+                params = []
+                if request.name is not None:
+                    updates.append("name = %s")
+                    params.append(request.name)
+                if request.description is not None:
+                    updates.append("description = %s")
+                    params.append(request.description)
+                updates.append("updated_at = timezone('utc', now())")
+                params.append(price_list_id)
+
+                cur.execute(f"""
+                    UPDATE dw.customer_price_list
+                    SET {', '.join(updates)}
+                    WHERE price_list_id = %s
+                """, params)
+
+            # Replace overrides if provided
+            if request.overrides is not None:
+                cur.execute("DELETE FROM dw.customer_price_override WHERE price_list_id = %s", (price_list_id,))
+                for override in request.overrides:
+                    cur.execute("""
+                        INSERT INTO dw.customer_price_override
+                            (price_list_id, product_id, custom_price, custom_bulk_price)
+                        VALUES (%s, %s, %s, %s)
+                    """, (price_list_id, override.product_id, override.custom_price, override.custom_bulk_price))
+
+            conn.commit()
+            return {"message": "Price list updated"}
+
+
+@app.delete("/api/customers/{customer_id}/price-list/{price_list_id}")
+async def delete_customer_price_list(customer_id: str, price_list_id: int):
+    """Soft delete (deactivate) a price list."""
+    with get_db_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                UPDATE dw.customer_price_list
+                SET is_active = false, effective_to = CURRENT_DATE, updated_at = timezone('utc', now())
+                WHERE price_list_id = %s AND customer_id = %s AND is_active = true
+                RETURNING price_list_id
+            """, (price_list_id, customer_id))
+
+            if not cur.fetchone():
+                raise HTTPException(status_code=404, detail="Price list not found")
+
+            conn.commit()
+            return {"message": "Price list deleted"}
+
+
+@app.get("/api/customers/{customer_id}/price-list/pdf")
+async def get_customer_price_list_pdf(customer_id: str, include_all: bool = False):
+    """Generate PDF price list for a specific customer.
+
+    Args:
+        customer_id: The customer ID
+        include_all: If True, include all products with effective prices.
+                     If False, only include products with custom prices.
+    """
+    from scripts.generate_price_list_pdf import fetch_customer_products, generate_customer_price_list_pdf
+
+    with get_db_connection() as conn:
+        customer_info, products = fetch_customer_products(conn, customer_id, include_all)
+
+        if not customer_info:
+            raise HTTPException(status_code=404, detail="Customer not found")
+
+        pdf_bytes = generate_customer_price_list_pdf(customer_info, products)
+
+        safe_name = customer_info['customer_name'].replace(' ', '_').replace('/', '-')
+        filename = f"Price_List_{safe_name}_{datetime.now().strftime('%Y%m%d')}.pdf"
+
+        return StreamingResponse(
+            io.BytesIO(pdf_bytes),
+            media_type="application/pdf",
+            headers={"Content-Disposition": f"attachment; filename={filename}"}
+        )
+
+
 def run_queue_processor():
     """Process the report queue synchronously."""
     sg_key = os.getenv("SENDGRID_API_KEY")
@@ -726,6 +941,10 @@ class InviteRequest(BaseModel):
     role_id: str
 
 
+class UpdateRoleRequest(BaseModel):
+    role_id: str
+
+
 @app.get("/api/users/me")
 async def get_current_user_info(
     current_user: UserClaims = Depends(require_auth)
@@ -798,6 +1017,83 @@ async def list_roles(
                 roles = cur.fetchall()
 
         return {"roles": roles}
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.put("/api/users/{user_id}/role")
+async def update_user_role(
+    user_id: str,
+    request: UpdateRoleRequest,
+    current_user: UserClaims = Depends(require_auth)
+):
+    """Update a user's role. Only super_user can do this."""
+    print(f"[DEBUG] /api/users/{user_id}/role called by user: {current_user.email}, role: {current_user.user_role}")
+
+    # Authorization check
+    if current_user.user_role != 'super_user':
+        raise HTTPException(status_code=403, detail="Only super_user can update roles")
+
+    # Prevent self-modification
+    if current_user.sub == user_id:
+        raise HTTPException(status_code=400, detail="Cannot change your own role")
+
+    try:
+        with get_db_connection() as conn:
+            with conn.cursor(row_factory=dict_row) as cur:
+                # Validate role exists
+                cur.execute("SELECT role_id FROM dw.app_roles WHERE role_id = %s", (request.role_id,))
+                if not cur.fetchone():
+                    raise HTTPException(status_code=400, detail=f"Invalid role: {request.role_id}")
+
+                # Get target user info
+                cur.execute("SELECT email FROM auth.users WHERE id = %s", (user_id,))
+                user_row = cur.fetchone()
+                if not user_row:
+                    raise HTTPException(status_code=404, detail="User not found")
+
+                # Get current role of target user
+                cur.execute(
+                    "SELECT role_id FROM dw.user_roles WHERE user_id = %s",
+                    (user_id,)
+                )
+                current_role_row = cur.fetchone()
+                target_current_role = current_role_row['role_id'] if current_role_row else None
+
+                # If demoting from super_user, ensure we keep at least one
+                if target_current_role == 'super_user' and request.role_id != 'super_user':
+                    cur.execute("SELECT COUNT(*) as cnt FROM dw.user_roles WHERE role_id = 'super_user'")
+                    super_count = cur.fetchone()['cnt']
+                    if super_count <= 1:
+                        raise HTTPException(
+                            status_code=400,
+                            detail="Cannot demote the last super_user"
+                        )
+
+                # Upsert the role
+                cur.execute("""
+                    INSERT INTO dw.user_roles (user_id, role_id, assigned_by, assigned_at)
+                    VALUES (%s, %s, %s, timezone('utc', now()))
+                    ON CONFLICT (user_id) DO UPDATE SET
+                        role_id = EXCLUDED.role_id,
+                        assigned_by = EXCLUDED.assigned_by,
+                        assigned_at = EXCLUDED.assigned_at
+                """, (user_id, request.role_id, current_user.sub))
+
+            conn.commit()
+
+        return {
+            "success": True,
+            "user_id": user_id,
+            "email": user_row['email'],
+            "new_role": request.role_id,
+            "message": f"Role updated to {request.role_id}"
+        }
+
+    except HTTPException:
+        raise
     except Exception as e:
         import traceback
         traceback.print_exc()

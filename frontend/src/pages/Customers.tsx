@@ -1,9 +1,10 @@
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useState, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
 import {
     Loader2, Search, UserCircle, MapPin, Building2,
-    ChevronDown, ChevronUp, Filter, Pencil, X, Tag
+    ChevronDown, ChevronUp, Filter, Pencil, X, Tag,
+    MoreHorizontal, DollarSign, Printer
 } from 'lucide-react';
 import clsx from 'clsx';
 
@@ -20,6 +21,7 @@ interface Customer {
     master_customer_id: string | null;
     cluster_id: number | null;
     cluster_label: string | null;
+    has_custom_price_list: boolean;
 }
 
 interface MerchantGroup {
@@ -64,6 +66,21 @@ export default function Customers() {
     const [merchantGroupForm, setMerchantGroupForm] = useState({ bill_to: '' });
     const [merchantGroupSaving, setMerchantGroupSaving] = useState(false);
 
+    // Dropdown menu state
+    const [openDropdownId, setOpenDropdownId] = useState<string | null>(null);
+    const dropdownRef = useRef<HTMLDivElement>(null);
+
+    // Close dropdown when clicking outside
+    useEffect(() => {
+        const handleClickOutside = (event: MouseEvent) => {
+            if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+                setOpenDropdownId(null);
+            }
+        };
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => document.removeEventListener('mousedown', handleClickOutside);
+    }, []);
+
     useEffect(() => {
         fetchCustomers();
         fetchDropdownOptions();
@@ -84,6 +101,7 @@ export default function Customers() {
             if (error) {
                 // Fallback to direct query if RPC doesn't exist
                 const { data: fallbackData } = await supabase
+                    .schema('dw')
                     .from('dim_customer')
                     .select('*')
                     .eq('archived', false)
@@ -92,7 +110,8 @@ export default function Customers() {
                     ...c,
                     master_customer_id: c.master_customer_id || null,
                     cluster_id: null,
-                    cluster_label: null
+                    cluster_label: null,
+                    has_custom_price_list: c.has_custom_price_list || false
                 })));
 
                 // Extract unique markets from fallback data
@@ -325,6 +344,38 @@ export default function Customers() {
         navigate('/clusters');
     };
 
+    const handlePrintPriceList = async (customerId: string, customerName: string) => {
+        setOpenDropdownId(null);
+        try {
+            const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:8001';
+            const response = await fetch(`${apiUrl}/api/customers/${customerId}/price-list/pdf?include_all=true`);
+
+            if (!response.ok) throw new Error('Failed to generate PDF');
+
+            const blob = await response.blob();
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `Price_List_${customerName.replace(/\s+/g, '_')}_${new Date().toISOString().split('T')[0]}.pdf`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            window.URL.revokeObjectURL(url);
+        } catch (error) {
+            console.error('Failed to print price list:', error);
+            alert('Failed to generate price list. Please try again.');
+        }
+    };
+
+    const handleManagePrices = (customerId: string) => {
+        setOpenDropdownId(null);
+        navigate(`/customers/${customerId}/prices`);
+    };
+
+    const toggleDropdown = (customerId: string) => {
+        setOpenDropdownId(prev => prev === customerId ? null : customerId);
+    };
+
     return (
         <div className="space-y-6">
             {/* Header */}
@@ -514,6 +565,9 @@ export default function Customers() {
                                             <th className="px-6 py-3.5 text-left text-xs font-semibold uppercase tracking-wider text-gray-500">
                                                 Type
                                             </th>
+                                            <th className="px-6 py-3.5 text-left text-xs font-semibold uppercase tracking-wider text-gray-500">
+                                                Price List
+                                            </th>
                                             <th className="px-6 py-3.5 text-right text-xs font-semibold uppercase tracking-wider text-gray-500">
                                                 Actions
                                             </th>
@@ -522,7 +576,7 @@ export default function Customers() {
                                     <tbody className="divide-y divide-gray-200 bg-white">
                                         {filteredAndSortedCustomers.length === 0 ? (
                                             <tr>
-                                                <td colSpan={6} className="px-6 py-12 text-center">
+                                                <td colSpan={7} className="px-6 py-12 text-center">
                                                     <UserCircle className="mx-auto h-12 w-12 text-gray-300" />
                                                     <p className="mt-2 text-sm text-gray-500">No customers found</p>
                                                     {(searchQuery || activeFilterCount > 0) && (
@@ -594,14 +648,53 @@ export default function Customers() {
                                                             {customer.customer_type || 'customer'}
                                                         </span>
                                                     </td>
+                                                    <td className="whitespace-nowrap px-6 py-4">
+                                                        {customer.has_custom_price_list ? (
+                                                            <span className="inline-flex items-center rounded-full bg-green-100 px-2.5 py-0.5 text-xs font-medium text-green-800">
+                                                                Custom
+                                                            </span>
+                                                        ) : (
+                                                            <span className="text-sm text-gray-400">Default</span>
+                                                        )}
+                                                    </td>
                                                     <td className="whitespace-nowrap px-6 py-4 text-right">
-                                                        <button
-                                                            onClick={() => openEditModal(customer)}
-                                                            className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors"
-                                                            title="Edit customer"
-                                                        >
-                                                            <Pencil className="h-4 w-4" />
-                                                        </button>
+                                                        <div className="relative inline-block" ref={openDropdownId === customer.customer_id ? dropdownRef : undefined}>
+                                                            <button
+                                                                onClick={() => toggleDropdown(customer.customer_id)}
+                                                                className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded transition-colors"
+                                                                title="Actions"
+                                                            >
+                                                                <MoreHorizontal className="h-4 w-4" />
+                                                            </button>
+                                                            {openDropdownId === customer.customer_id && (
+                                                                <div className="absolute right-0 z-10 mt-1 w-48 rounded-lg border border-gray-200 bg-white py-1 shadow-lg">
+                                                                    <button
+                                                                        onClick={() => {
+                                                                            setOpenDropdownId(null);
+                                                                            openEditModal(customer);
+                                                                        }}
+                                                                        className="flex w-full items-center gap-2 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
+                                                                    >
+                                                                        <Pencil className="h-4 w-4" />
+                                                                        Edit Details
+                                                                    </button>
+                                                                    <button
+                                                                        onClick={() => handleManagePrices(customer.customer_id)}
+                                                                        className="flex w-full items-center gap-2 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
+                                                                    >
+                                                                        <DollarSign className="h-4 w-4" />
+                                                                        Manage Prices
+                                                                    </button>
+                                                                    <button
+                                                                        onClick={() => handlePrintPriceList(customer.customer_id, customer.customer_name)}
+                                                                        className="flex w-full items-center gap-2 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
+                                                                    >
+                                                                        <Printer className="h-4 w-4" />
+                                                                        Print Price List
+                                                                    </button>
+                                                                </div>
+                                                            )}
+                                                        </div>
                                                     </td>
                                                 </tr>
                                             ))

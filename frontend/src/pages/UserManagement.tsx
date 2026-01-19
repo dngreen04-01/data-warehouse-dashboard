@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
-import { Loader2, UserPlus, Users, Shield, Trash2, Mail, Clock, CheckCircle2 } from 'lucide-react';
+import { Loader2, UserPlus, Users, Shield, Trash2, Mail, Clock, CheckCircle2, Edit2 } from 'lucide-react';
 import clsx from 'clsx';
 
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8001';
@@ -30,8 +30,18 @@ interface Role {
     description: string;
 }
 
+interface PendingRoleChange {
+    userId: string;
+    email: string;
+    currentRole: string | null;
+    currentRoleName: string | null;
+    newRole: string;
+    newRoleName: string;
+}
+
 export default function UserManagement() {
-    const { session, isSuperUser } = useAuth();
+    const { session, isSuperUser, user } = useAuth();
+    const currentUserId = user?.id;
     const [users, setUsers] = useState<User[]>([]);
     const [invitations, setInvitations] = useState<Invitation[]>([]);
     const [roles, setRoles] = useState<Role[]>([]);
@@ -43,6 +53,11 @@ export default function UserManagement() {
     const [inviteEmail, setInviteEmail] = useState('');
     const [inviteRole, setInviteRole] = useState('sales');
     const [inviting, setInviting] = useState(false);
+
+    // Role editing state
+    const [editingUserId, setEditingUserId] = useState<string | null>(null);
+    const [pendingRoleChange, setPendingRoleChange] = useState<PendingRoleChange | null>(null);
+    const [updating, setUpdating] = useState(false);
 
     const authHeaders = {
         'Authorization': `Bearer ${session?.access_token}`,
@@ -152,6 +167,56 @@ export default function UserManagement() {
             }
         } catch (err) {
             setError(err instanceof Error ? err.message : 'Failed to revoke invitation');
+        }
+    }
+
+    function handleRoleSelect(user: User, newRoleId: string) {
+        if (newRoleId === user.role_id) {
+            setEditingUserId(null);
+            return;
+        }
+        const newRole = roles.find(r => r.role_id === newRoleId);
+        setPendingRoleChange({
+            userId: user.user_id,
+            email: user.email,
+            currentRole: user.role_id,
+            currentRoleName: user.role_name,
+            newRole: newRoleId,
+            newRoleName: newRole?.role_name || newRoleId
+        });
+        setEditingUserId(null);
+    }
+
+    async function confirmRoleChange() {
+        if (!pendingRoleChange) return;
+
+        setUpdating(true);
+        setError(null);
+        setSuccess(null);
+
+        try {
+            const response = await fetch(
+                `${API_BASE}/api/users/${pendingRoleChange.userId}/role`,
+                {
+                    method: 'PUT',
+                    headers: authHeaders,
+                    body: JSON.stringify({ role_id: pendingRoleChange.newRole })
+                }
+            );
+
+            const data = await response.json();
+
+            if (!response.ok) {
+                throw new Error(data.detail || 'Failed to update role');
+            }
+
+            setSuccess(`Role updated to ${pendingRoleChange.newRoleName} for ${pendingRoleChange.email}`);
+            setPendingRoleChange(null);
+            fetchData();
+        } catch (err) {
+            setError(err instanceof Error ? err.message : 'Failed to update role');
+        } finally {
+            setUpdating(false);
         }
     }
 
@@ -360,14 +425,44 @@ export default function UserManagement() {
                                     <tr key={user.user_id} className="hover:bg-gray-50">
                                         <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
                                             {user.email}
+                                            {user.user_id === currentUserId && (
+                                                <span className="ml-2 text-xs text-gray-400">(you)</span>
+                                            )}
                                         </td>
                                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                                            <span className={clsx(
-                                                "px-2 py-1 rounded-full text-xs font-medium",
-                                                getRoleBadgeColor(user.role_id)
-                                            )}>
-                                                {user.role_name || 'No Role'}
-                                            </span>
+                                            {editingUserId === user.user_id ? (
+                                                <select
+                                                    value={user.role_id || ''}
+                                                    onChange={(e) => handleRoleSelect(user, e.target.value)}
+                                                    onBlur={() => setEditingUserId(null)}
+                                                    autoFocus
+                                                    className="block w-full px-2 py-1 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 text-sm"
+                                                >
+                                                    {roles.map(role => (
+                                                        <option key={role.role_id} value={role.role_id}>
+                                                            {role.role_name}
+                                                        </option>
+                                                    ))}
+                                                </select>
+                                            ) : (
+                                                <div
+                                                    className={clsx(
+                                                        "inline-flex items-center gap-2",
+                                                        user.user_id !== currentUserId && "cursor-pointer group"
+                                                    )}
+                                                    onClick={() => user.user_id !== currentUserId && setEditingUserId(user.user_id)}
+                                                >
+                                                    <span className={clsx(
+                                                        "px-2 py-1 rounded-full text-xs font-medium",
+                                                        getRoleBadgeColor(user.role_id)
+                                                    )}>
+                                                        {user.role_name || 'No Role'}
+                                                    </span>
+                                                    {user.user_id !== currentUserId && (
+                                                        <Edit2 className="h-3 w-3 text-gray-400 opacity-0 group-hover:opacity-100 transition-opacity" />
+                                                    )}
+                                                </div>
+                                            )}
                                         </td>
                                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                                             {formatDate(user.last_sign_in_at)}
@@ -382,6 +477,60 @@ export default function UserManagement() {
                     </div>
                 )}
             </div>
+
+            {/* Role Change Confirmation Modal */}
+            {pendingRoleChange && (
+                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+                    <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4 shadow-xl">
+                        <h3 className="text-lg font-semibold text-gray-900 mb-4">
+                            Confirm Role Change
+                        </h3>
+                        <p className="text-gray-600 mb-6">
+                            Change role for <strong>{pendingRoleChange.email}</strong> from{' '}
+                            <span className={clsx(
+                                "px-2 py-0.5 rounded text-xs font-medium",
+                                getRoleBadgeColor(pendingRoleChange.currentRole)
+                            )}>
+                                {pendingRoleChange.currentRoleName || 'No Role'}
+                            </span>
+                            {' '}to{' '}
+                            <span className={clsx(
+                                "px-2 py-0.5 rounded text-xs font-medium",
+                                getRoleBadgeColor(pendingRoleChange.newRole)
+                            )}>
+                                {pendingRoleChange.newRoleName}
+                            </span>
+                            ?
+                        </p>
+                        <div className="flex justify-end gap-3">
+                            <button
+                                onClick={() => setPendingRoleChange(null)}
+                                disabled={updating}
+                                className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50"
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                onClick={confirmRoleChange}
+                                disabled={updating}
+                                className={clsx(
+                                    "px-4 py-2 text-sm font-medium text-white rounded-md inline-flex items-center gap-2",
+                                    updating ? "bg-blue-400 cursor-not-allowed" : "bg-blue-600 hover:bg-blue-700"
+                                )}
+                            >
+                                {updating ? (
+                                    <>
+                                        <Loader2 className="h-4 w-4 animate-spin" />
+                                        Updating...
+                                    </>
+                                ) : (
+                                    'Confirm Change'
+                                )}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }

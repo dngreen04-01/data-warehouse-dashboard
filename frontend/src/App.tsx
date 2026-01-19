@@ -19,6 +19,7 @@ import CRM from '@/pages/CRM';
 import EmailSubscriptions from '@/pages/EmailSubscriptions';
 import UserManagement from '@/pages/UserManagement';
 import SupplierStock from '@/pages/SupplierStock';
+import CustomerPriceList from '@/pages/CustomerPriceList';
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { user, loading, role } = useAuth();
@@ -105,6 +106,14 @@ export default function App() {
             element={
               <ProtectedRoute>
                 <Customers />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/customers/:customerId/prices"
+            element={
+              <ProtectedRoute>
+                <CustomerPriceList />
               </ProtectedRoute>
             }
           />
