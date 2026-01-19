@@ -16,7 +16,7 @@ To see it working: navigate to the Products page, click "Export Price List", sel
 
 - [x] Milestone 1: Database schema changes (add price_list_price and bulk_price columns, update RPC)
 - [x] Milestone 2: Backend PDF generation (create PriceListPDF class and API endpoint)
-- [ ] Milestone 3: Frontend integration (export button, modal, edit fields for pricing)
+- [x] Milestone 3: Frontend integration (export button, modal, edit fields for pricing)
 
 
 ## Surprises & Discoveries
@@ -37,7 +37,7 @@ To see it working: navigate to the Products page, click "Export Price List", sel
 
 ## Outcomes & Retrospective
 
-(To be populated during and after implementation.)
+- **2026-01-19**: All three milestones completed successfully. The Products page now has an "Export Price List" button that opens a modal for selecting the price source (Xero or Custom). The edit modal includes new fields for "Price List Price" and "Bulk Price" under a "Price List Settings" section. The frontend correctly calls the backend API endpoint to generate and download the PDF.
 
 
 ## Context and Orientation

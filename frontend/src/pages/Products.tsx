@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
 import {
     Loader2, Search, Package, Layers,
-    ChevronDown, ChevronUp, Filter, Pencil, Tag
+    ChevronDown, ChevronUp, Filter, Pencil, Tag, Download
 } from 'lucide-react';
 import clsx from 'clsx';
 
@@ -26,6 +26,9 @@ interface Product {
     carton_depth_mm: number | null;
     carton_weight_kg: number | null;
     cartons_per_pallet: number | null;
+    // Price list fields
+    price_list_price: number | null;
+    bulk_price: number | null;
 }
 
 type SortField = 'product_code' | 'item_name' | 'product_group';
@@ -51,8 +54,15 @@ export default function Products() {
         carton_depth_mm: '',
         carton_weight_kg: '',
         cartons_per_pallet: '',
+        price_list_price: '',
+        bulk_price: '',
     });
     const [saving, setSaving] = useState(false);
+
+    // Export modal state
+    const [showExportModal, setShowExportModal] = useState(false);
+    const [exportPriceSource, setExportPriceSource] = useState<'xero' | 'custom'>('xero');
+    const [exporting, setExporting] = useState(false);
 
     useEffect(() => {
         fetchProducts();
@@ -82,6 +92,8 @@ export default function Products() {
                     carton_depth_mm,
                     carton_weight_kg,
                     cartons_per_pallet,
+                    price_list_price,
+                    bulk_price,
                     dim_product_cluster (
                         cluster_id,
                         dim_cluster (
@@ -107,7 +119,9 @@ export default function Products() {
                 setProducts((fallbackData || []).map(p => ({
                     ...p,
                     cluster_id: null,
-                    cluster_label: null
+                    cluster_label: null,
+                    price_list_price: p.price_list_price ?? null,
+                    bulk_price: p.bulk_price ?? null,
                 })));
             } else {
                 // Map joined data to flat structure
@@ -129,6 +143,8 @@ export default function Products() {
                     carton_depth_mm: p.carton_depth_mm ?? null,
                     carton_weight_kg: p.carton_weight_kg ?? null,
                     cartons_per_pallet: p.cartons_per_pallet ?? null,
+                    price_list_price: p.price_list_price ?? null,
+                    bulk_price: p.bulk_price ?? null,
                 }));
                 setProducts(mappedProducts);
             }
@@ -235,6 +251,8 @@ export default function Products() {
             carton_depth_mm: product.carton_depth_mm?.toString() || '',
             carton_weight_kg: product.carton_weight_kg?.toString() || '',
             cartons_per_pallet: product.cartons_per_pallet?.toString() || '',
+            price_list_price: product.price_list_price?.toString() || '',
+            bulk_price: product.bulk_price?.toString() || '',
         });
     };
 
@@ -247,6 +265,8 @@ export default function Products() {
             carton_depth_mm: '',
             carton_weight_kg: '',
             cartons_per_pallet: '',
+            price_list_price: '',
+            bulk_price: '',
         });
     };
 
@@ -267,6 +287,8 @@ export default function Products() {
                 p_carton_depth_mm: parseIntOrNull(editForm.carton_depth_mm),
                 p_carton_weight_kg: parseFloatOrNull(editForm.carton_weight_kg),
                 p_cartons_per_pallet: parseIntOrNull(editForm.cartons_per_pallet),
+                p_price_list_price: parseFloatOrNull(editForm.price_list_price),
+                p_bulk_price: parseFloatOrNull(editForm.bulk_price),
             });
             if (error) throw error;
 
@@ -281,6 +303,8 @@ export default function Products() {
                         carton_depth_mm: parseIntOrNull(editForm.carton_depth_mm) ?? p.carton_depth_mm,
                         carton_weight_kg: parseFloatOrNull(editForm.carton_weight_kg) ?? p.carton_weight_kg,
                         cartons_per_pallet: parseIntOrNull(editForm.cartons_per_pallet) ?? p.cartons_per_pallet,
+                        price_list_price: parseFloatOrNull(editForm.price_list_price) ?? p.price_list_price,
+                        bulk_price: parseFloatOrNull(editForm.bulk_price) ?? p.bulk_price,
                     }
                     : p
             ));
@@ -291,6 +315,34 @@ export default function Products() {
             alert('Failed to update product. Please try again.');
         } finally {
             setSaving(false);
+        }
+    };
+
+    const handleExportPriceList = async () => {
+        setExporting(true);
+        try {
+            const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:8001';
+            const url = `${apiUrl}/api/price-list/pdf?price_source=${exportPriceSource}`;
+
+            const response = await fetch(url);
+            if (!response.ok) throw new Error('Failed to generate PDF');
+
+            const blob = await response.blob();
+            const downloadUrl = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = downloadUrl;
+            a.download = `Price_List_${new Date().toISOString().split('T')[0]}.pdf`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            window.URL.revokeObjectURL(downloadUrl);
+
+            setShowExportModal(false);
+        } catch (error) {
+            console.error('Export failed:', error);
+            alert('Failed to export price list. Please try again.');
+        } finally {
+            setExporting(false);
         }
     };
 
@@ -308,13 +360,22 @@ export default function Products() {
                         Product catalog ({filteredAndSortedProducts.length} products)
                     </p>
                 </div>
-                <button
-                    onClick={navigateToClusterManagement}
-                    className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 transition-colors"
-                >
-                    <Tag className="h-4 w-4" />
-                    Manage Clusters
-                </button>
+                <div className="flex gap-2">
+                    <button
+                        onClick={() => setShowExportModal(true)}
+                        className="inline-flex items-center gap-2 rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors"
+                    >
+                        <Download className="h-4 w-4" />
+                        Export Price List
+                    </button>
+                    <button
+                        onClick={navigateToClusterManagement}
+                        className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 transition-colors"
+                    >
+                        <Tag className="h-4 w-4" />
+                        Manage Clusters
+                    </button>
+                </div>
             </div>
 
             {/* Summary Cards */}
@@ -686,6 +747,45 @@ export default function Products() {
                                         />
                                     </div>
                                 </div>
+
+                                {/* Pricing Section Header */}
+                                <div className="border-t pt-4">
+                                    <h3 className="text-sm font-medium text-gray-900 mb-3">Price List Settings</h3>
+                                </div>
+
+                                {/* Price List Fields */}
+                                <div className="grid grid-cols-2 gap-3">
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                                            Price List Price ($)
+                                        </label>
+                                        <input
+                                            type="number"
+                                            min="0"
+                                            step="0.01"
+                                            value={editForm.price_list_price}
+                                            onChange={(e) => setEditForm(prev => ({ ...prev, price_list_price: e.target.value }))}
+                                            placeholder={editingProduct?.price?.toString() || '—'}
+                                            className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                                        />
+                                        <p className="text-xs text-gray-500 mt-1">Leave blank to use Xero price</p>
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                                            Bulk Price ($)
+                                        </label>
+                                        <input
+                                            type="number"
+                                            min="0"
+                                            step="0.01"
+                                            value={editForm.bulk_price}
+                                            onChange={(e) => setEditForm(prev => ({ ...prev, bulk_price: e.target.value }))}
+                                            placeholder="—"
+                                            className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                                        />
+                                        <p className="text-xs text-gray-500 mt-1">Price for 10+ carton orders</p>
+                                    </div>
+                                </div>
                             </div>
 
                             {/* Actions */}
@@ -703,6 +803,71 @@ export default function Products() {
                                 >
                                     {saving && <Loader2 className="h-4 w-4 animate-spin" />}
                                     Save Changes
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Export Price List Modal */}
+            {showExportModal && (
+                <div className="fixed inset-0 z-50 overflow-y-auto">
+                    <div className="flex min-h-full items-center justify-center p-4">
+                        <div
+                            className="fixed inset-0 bg-black/50 transition-opacity"
+                            onClick={() => setShowExportModal(false)}
+                        />
+                        <div className="relative w-full max-w-md rounded-xl bg-white p-6 shadow-xl">
+                            <h2 className="text-lg font-semibold text-gray-900 mb-4">Export Price List</h2>
+
+                            <div className="space-y-4">
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                                        Price Source
+                                    </label>
+                                    <div className="space-y-2">
+                                        <label className="flex items-center gap-2">
+                                            <input
+                                                type="radio"
+                                                name="priceSource"
+                                                value="xero"
+                                                checked={exportPriceSource === 'xero'}
+                                                onChange={() => setExportPriceSource('xero')}
+                                                className="h-4 w-4 text-blue-600"
+                                            />
+                                            <span className="text-sm text-gray-700">Xero Prices (synced from accounting)</span>
+                                        </label>
+                                        <label className="flex items-center gap-2">
+                                            <input
+                                                type="radio"
+                                                name="priceSource"
+                                                value="custom"
+                                                checked={exportPriceSource === 'custom'}
+                                                onChange={() => setExportPriceSource('custom')}
+                                                className="h-4 w-4 text-blue-600"
+                                            />
+                                            <span className="text-sm text-gray-700">Custom Prices (price list overrides)</span>
+                                        </label>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div className="mt-6 flex justify-end gap-3">
+                                <button
+                                    onClick={() => setShowExportModal(false)}
+                                    className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors"
+                                >
+                                    Cancel
+                                </button>
+                                <button
+                                    onClick={handleExportPriceList}
+                                    disabled={exporting}
+                                    className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50 transition-colors"
+                                >
+                                    {exporting && <Loader2 className="h-4 w-4 animate-spin" />}
+                                    <Download className="h-4 w-4" />
+                                    Download PDF
                                 </button>
                             </div>
                         </div>
