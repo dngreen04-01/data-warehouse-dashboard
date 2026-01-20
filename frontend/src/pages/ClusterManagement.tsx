@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
-import { Loader2, Plus, Trash2, Check, X, Users, Package, Pencil, Search } from 'lucide-react';
+import { Loader2, Plus, Trash2, Check, X, Users, Package, Pencil, Search, Factory } from 'lucide-react';
 import clsx from 'clsx';
 
 interface Cluster {
@@ -9,6 +9,7 @@ interface Cluster {
     cluster_type: string;
     member_count: number;
     base_unit_label?: string;  // For product clusters - e.g., "clips", "units"
+    produced_by_waihi?: boolean;  // For product clusters - controls visibility on supplier stock page
 }
 
 interface Member {
@@ -167,6 +168,26 @@ export default function ClusterManagement() {
         } catch (error) {
             console.error('Error updating base unit label:', error);
             alert('Failed to update base unit label. Please try again.');
+        }
+    };
+
+    const updateProducedByWaihi = async (clusterId: number, value: boolean) => {
+        try {
+            const { error } = await supabase.rpc('update_cluster_produced_by_waihi', {
+                p_cluster_id: clusterId,
+                p_produced_by_waihi: value
+            });
+            if (error) throw error;
+            // Update local state
+            setClusters(prev => prev.map(c =>
+                c.cluster_id === clusterId ? { ...c, produced_by_waihi: value } : c
+            ));
+            if (selectedCluster?.cluster_id === clusterId) {
+                setSelectedCluster({ ...selectedCluster, produced_by_waihi: value });
+            }
+        } catch (error) {
+            console.error('Error updating produced by Waihi:', error);
+            alert('Failed to update. Please try again.');
         }
     };
 
@@ -544,13 +565,31 @@ export default function ClusterManagement() {
                                                     </span>
                                                 )}
                                             </div>
-                                            <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                            <div className="flex items-center gap-1">
+                                                {/* Produced by Waihi toggle - always visible for product clusters */}
+                                                {activeTab === 'product' && (
+                                                    <button
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            updateProducedByWaihi(cluster.cluster_id, !cluster.produced_by_waihi);
+                                                        }}
+                                                        className={clsx(
+                                                            "p-1 rounded transition-colors",
+                                                            cluster.produced_by_waihi
+                                                                ? "text-green-600 bg-green-50 hover:bg-green-100"
+                                                                : "text-gray-300 hover:text-gray-500 hover:bg-gray-100"
+                                                        )}
+                                                        title={cluster.produced_by_waihi ? "Produced by Waihi (click to disable)" : "Not produced by Waihi (click to enable)"}
+                                                    >
+                                                        <Factory className="h-4 w-4" />
+                                                    </button>
+                                                )}
                                                 <button
                                                     onClick={(e) => {
                                                         e.stopPropagation();
                                                         startEditing(cluster);
                                                     }}
-                                                    className="p-1 text-gray-400 hover:text-blue-600 rounded"
+                                                    className="p-1 text-gray-400 hover:text-blue-600 rounded opacity-0 group-hover:opacity-100 transition-opacity"
                                                     title="Rename cluster"
                                                 >
                                                     <Pencil className="h-3.5 w-3.5" />
@@ -560,7 +599,7 @@ export default function ClusterManagement() {
                                                         e.stopPropagation();
                                                         deleteCluster(cluster.cluster_id);
                                                     }}
-                                                    className="p-1 text-gray-400 hover:text-red-600 rounded"
+                                                    className="p-1 text-gray-400 hover:text-red-600 rounded opacity-0 group-hover:opacity-100 transition-opacity"
                                                     title="Delete cluster"
                                                 >
                                                     <Trash2 className="h-3.5 w-3.5" />

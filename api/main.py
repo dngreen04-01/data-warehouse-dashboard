@@ -1307,6 +1307,7 @@ async def get_supplier_products(
                 week_ending = cur.fetchone()["get_week_ending"]
 
                 # Get finished products with cluster info (exclude WIP products)
+                # Only include products in clusters where produced_by_waihi = true
                 cur.execute("""
                     SELECT
                         p.product_id,
@@ -1315,16 +1316,19 @@ async def get_supplier_products(
                         c.cluster_id,
                         c.cluster_label
                     FROM dw.dim_product p
-                    LEFT JOIN dw.dim_product_cluster pc ON p.product_id = pc.product_id
-                    LEFT JOIN dw.dim_cluster c ON pc.cluster_id = c.cluster_id AND c.cluster_type = 'product'
+                    INNER JOIN dw.dim_product_cluster pc ON p.product_id = pc.product_id
+                    INNER JOIN dw.dim_cluster c ON pc.cluster_id = c.cluster_id
+                        AND c.cluster_type = 'product'
+                        AND c.produced_by_waihi = true
                     WHERE p.archived = false
                       AND p.is_tracked_as_inventory = true
                       AND (p.product_type IS NULL OR p.product_type = 'finished')
-                    ORDER BY c.cluster_label NULLS LAST, p.item_name
+                    ORDER BY c.cluster_label, p.item_name
                 """)
                 products = cur.fetchall()
 
                 # Get WIP products with their cluster info
+                # Only include WIP products for clusters where produced_by_waihi = true
                 cur.execute("""
                     SELECT
                         p.product_id,
@@ -1337,11 +1341,12 @@ async def get_supplier_products(
                     JOIN dw.dim_cluster c ON p.wip_for_cluster_id = c.cluster_id
                     WHERE p.product_type = 'wip'
                       AND p.archived = false
+                      AND c.produced_by_waihi = true
                     ORDER BY c.cluster_label
                 """)
                 wip_products = cur.fetchall()
 
-                # Get stock entries for this user (includes both finished and WIP)
+                # Get stock entries for finished products
                 cur.execute("""
                     SELECT product_id, current_week_qty, previous_week_qty
                     FROM public.get_supplier_stock_entries(%s)
@@ -1355,38 +1360,48 @@ async def get_supplier_products(
                     for row in stock_rows
                 }
 
+                # Get stock entries for WIP products separately
+                cur.execute("""
+                    SELECT product_id, current_week_qty, previous_week_qty
+                    FROM public.get_wip_stock_entries(%s)
+                """, (current_user.sub,))
+                wip_stock_rows = cur.fetchall()
+                for row in wip_stock_rows:
+                    stock_entries[row["product_id"]] = {
+                        "current": row["current_week_qty"],
+                        "previous": row["previous_week_qty"]
+                    }
+
         # Group finished products by cluster
+        # Note: All products now require a cluster with produced_by_waihi=true
         clusters: dict = {}
         for row in products:
             product_id = row["product_id"]
             cluster_id = row["cluster_id"]
-            cluster_label = row["cluster_label"] if row["cluster_label"] else "Unclustered"
+            cluster_label = row["cluster_label"]
 
-            # Use cluster_id as key, or 0 for unclustered
-            key = cluster_id if cluster_id else 0
-
-            if key not in clusters:
-                clusters[key] = {
+            if cluster_id not in clusters:
+                clusters[cluster_id] = {
                     "cluster_id": cluster_id,
                     "cluster_label": cluster_label,
                     "products": []
                 }
 
             stock = stock_entries.get(product_id, {"current": None, "previous": None})
-            clusters[key]["products"].append({
+            clusters[cluster_id]["products"].append({
                 "product_id": product_id,
                 "product_code": row["product_code"],
                 "item_name": row["item_name"],
                 "cluster_id": cluster_id,
-                "cluster_label": row["cluster_label"],
+                "cluster_label": cluster_label,
                 "current_week_qty": stock["current"],
                 "previous_week_qty": stock["previous"]
             })
 
-        # Sort clusters: named clusters first (alphabetically), then Unclustered
+        # Sort clusters alphabetically by label
         cluster_list = sorted(
             clusters.values(),
-            key=lambda c: (c["cluster_id"] is None, c["cluster_label"])
+            key=lambda c: c["cluster_label"]
         )
 
         # Build WIP products list with stock entries
