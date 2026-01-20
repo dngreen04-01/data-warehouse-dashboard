@@ -1268,6 +1268,23 @@ class ClusterWithProducts(BaseModel):
     products: List[ProductForStock]
 
 
+class WIPProduct(BaseModel):
+    product_id: int
+    product_code: str
+    item_name: str
+    cluster_id: int
+    cluster_label: str
+    production_capacity_per_day: Optional[float] = None
+    current_week_qty: Optional[int] = None
+    previous_week_qty: Optional[int] = None
+
+
+class SupplierProductsResponse(BaseModel):
+    clusters: List[ClusterWithProducts]
+    wip_products: List[WIPProduct]
+    week_ending: str
+
+
 class StockEntry(BaseModel):
     product_id: int
     quantity_on_hand: int
@@ -1277,15 +1294,19 @@ class SaveStockRequest(BaseModel):
     entries: List[StockEntry]
 
 
-@app.get("/api/supplier/products", response_model=List[ClusterWithProducts])
+@app.get("/api/supplier/products", response_model=SupplierProductsResponse)
 async def get_supplier_products(
     current_user: UserClaims = Depends(require_role(["supplier", "super_user"]))
 ):
-    """Get all products grouped by cluster for supplier stock entry."""
+    """Get all products grouped by cluster for supplier stock entry, including WIP products."""
     try:
         with get_db_connection() as conn:
             with conn.cursor(row_factory=dict_row) as cur:
-                # Get products with cluster info
+                # Get current week ending
+                cur.execute("SELECT dw.get_week_ending(CURRENT_DATE)")
+                week_ending = cur.fetchone()["get_week_ending"]
+
+                # Get finished products with cluster info (exclude WIP products)
                 cur.execute("""
                     SELECT
                         p.product_id,
@@ -1298,11 +1319,29 @@ async def get_supplier_products(
                     LEFT JOIN dw.dim_cluster c ON pc.cluster_id = c.cluster_id AND c.cluster_type = 'product'
                     WHERE p.archived = false
                       AND p.is_tracked_as_inventory = true
+                      AND (p.product_type IS NULL OR p.product_type = 'finished')
                     ORDER BY c.cluster_label NULLS LAST, p.item_name
                 """)
                 products = cur.fetchall()
 
-                # Get stock entries for this user
+                # Get WIP products with their cluster info
+                cur.execute("""
+                    SELECT
+                        p.product_id,
+                        p.product_code,
+                        p.item_name,
+                        p.wip_for_cluster_id as cluster_id,
+                        c.cluster_label,
+                        p.production_capacity_per_day
+                    FROM dw.dim_product p
+                    JOIN dw.dim_cluster c ON p.wip_for_cluster_id = c.cluster_id
+                    WHERE p.product_type = 'wip'
+                      AND p.archived = false
+                    ORDER BY c.cluster_label
+                """)
+                wip_products = cur.fetchall()
+
+                # Get stock entries for this user (includes both finished and WIP)
                 cur.execute("""
                     SELECT product_id, current_week_qty, previous_week_qty
                     FROM public.get_supplier_stock_entries(%s)
@@ -1316,7 +1355,7 @@ async def get_supplier_products(
                     for row in stock_rows
                 }
 
-        # Group products by cluster
+        # Group finished products by cluster
         clusters: dict = {}
         for row in products:
             product_id = row["product_id"]
@@ -1345,11 +1384,32 @@ async def get_supplier_products(
             })
 
         # Sort clusters: named clusters first (alphabetically), then Unclustered
-        result = sorted(
+        cluster_list = sorted(
             clusters.values(),
             key=lambda c: (c["cluster_id"] is None, c["cluster_label"])
         )
-        return result
+
+        # Build WIP products list with stock entries
+        wip_list = []
+        for row in wip_products:
+            product_id = row["product_id"]
+            stock = stock_entries.get(product_id, {"current": None, "previous": None})
+            wip_list.append({
+                "product_id": product_id,
+                "product_code": row["product_code"],
+                "item_name": row["item_name"],
+                "cluster_id": row["cluster_id"],
+                "cluster_label": row["cluster_label"],
+                "production_capacity_per_day": float(row["production_capacity_per_day"]) if row["production_capacity_per_day"] else None,
+                "current_week_qty": stock["current"],
+                "previous_week_qty": stock["previous"]
+            })
+
+        return {
+            "clusters": cluster_list,
+            "wip_products": wip_list,
+            "week_ending": str(week_ending)
+        }
 
     except Exception as e:
         import traceback

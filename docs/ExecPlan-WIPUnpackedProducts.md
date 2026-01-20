@@ -22,7 +22,7 @@ Observable behavior: Navigate to Cluster Analytics and see a new "Total Stock Co
 
 - [x] Milestone 1: Database schema changes for WIP products
 - [x] Milestone 2: Auto-create "XXX Unpacked" products for each product cluster
-- [ ] Milestone 3: Update supplier portal to include WIP products
+- [x] Milestone 3: Update supplier portal to include WIP products
 - [ ] Milestone 4: Update report queries to exclude WIP products
 - [ ] Milestone 5: Comprehensive stock aggregation UI
 
