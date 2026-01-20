@@ -38,7 +38,7 @@ interface SupplierProductsResponse {
 export default function SupplierStock() {
   const { session } = useAuth();
   const [clusters, setClusters] = useState<Cluster[]>([]);
-  const [wipProducts, setWipProducts] = useState<WIPProduct[]>([]);
+  const [wipByCluster, setWipByCluster] = useState<Map<number, WIPProduct[]>>(new Map());
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
@@ -74,18 +74,30 @@ export default function SupplierStock() {
       const productsData: SupplierProductsResponse = await productsRes.json();
       const weekData = await weekRes.json();
 
-      setClusters(productsData.clusters);
-      setWipProducts(productsData.wip_products);
+      // Defensive: ensure arrays are present even if API returns unexpected data
+      const clustersData = productsData.clusters ?? [];
+      const wipProducts = productsData.wip_products ?? [];
+
+      // Group WIP products by their parent cluster
+      const wipMap = new Map<number, WIPProduct[]>();
+      wipProducts.forEach((wip) => {
+        const existing = wipMap.get(wip.cluster_id) || [];
+        existing.push(wip);
+        wipMap.set(wip.cluster_id, existing);
+      });
+
+      setClusters(clustersData);
+      setWipByCluster(wipMap);
       setWeekEnding(weekData.week_ending_formatted);
 
       // Initialize quantities from existing data (both finished and WIP products)
       const initialQtys: Record<number, string> = {};
-      productsData.clusters.forEach((cluster: Cluster) => {
+      clustersData.forEach((cluster: Cluster) => {
         cluster.products.forEach((product: Product) => {
           initialQtys[product.product_id] = product.current_week_qty?.toString() ?? '';
         });
       });
-      productsData.wip_products.forEach((product: WIPProduct) => {
+      wipProducts.forEach((product: WIPProduct) => {
         initialQtys[product.product_id] = product.current_week_qty?.toString() ?? '';
       });
       setQuantities(initialQtys);
@@ -201,149 +213,137 @@ export default function SupplierStock() {
         </div>
       )}
 
-      {/* Finished Products - Clusters */}
+      {/* Products - Clusters with WIP */}
       <div className="space-y-6">
-        {clusters.map((cluster) => (
-          <div key={cluster.cluster_id ?? 'unclustered'} className="bg-white rounded-lg shadow overflow-hidden">
-            {/* Cluster Header */}
-            <div className="bg-purple-50 px-4 py-3 border-b border-purple-100">
-              <h2 className="font-semibold text-purple-900">{cluster.cluster_label}</h2>
-              <p className="text-sm text-purple-600">{cluster.products.length} products</p>
-            </div>
+        {clusters.map((cluster) => {
+          const clusterWipProducts = cluster.cluster_id ? wipByCluster.get(cluster.cluster_id) || [] : [];
+          return (
+            <div key={cluster.cluster_id ?? 'unclustered'} className="bg-white rounded-lg shadow overflow-hidden">
+              {/* Cluster Header */}
+              <div className="bg-purple-50 px-4 py-3 border-b border-purple-100">
+                <h2 className="font-semibold text-purple-900">{cluster.cluster_label}</h2>
+                <p className="text-sm text-purple-600">
+                  {cluster.products.length} product{cluster.products.length !== 1 ? 's' : ''}
+                  {clusterWipProducts.length > 0 && ` + ${clusterWipProducts.length} WIP`}
+                </p>
+              </div>
 
-            {/* Products Table */}
-            <table className="min-w-full">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-32">
-                    SKU Code
-                  </th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Title
-                  </th>
-                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider w-32">
-                    Last Week
-                  </th>
-                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider w-40">
-                    Current Qty
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-200">
-                {cluster.products.map((product) => (
-                  <tr key={product.product_id} className="hover:bg-gray-50">
-                    <td className="px-4 py-3">
-                      <span className="inline-flex items-center px-2.5 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-800">
-                        {product.product_code}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 text-sm text-gray-900">
-                      {product.item_name}
-                    </td>
-                    <td className="px-4 py-3 text-sm text-gray-500 text-right">
-                      {product.previous_week_qty !== null ? product.previous_week_qty.toLocaleString() : '—'}
-                    </td>
-                    <td className="px-4 py-3 text-right">
-                      <input
-                        type="text"
-                        inputMode="numeric"
-                        pattern="[0-9]*"
-                        value={quantities[product.product_id] ?? ''}
-                        onChange={(e) => handleQuantityChange(product.product_id, e.target.value)}
-                        placeholder="0"
-                        className="w-24 px-3 py-1.5 text-right border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                      />
-                    </td>
+              {/* Finished Products Table */}
+              <table className="min-w-full">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-32">
+                      SKU Code
+                    </th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Title
+                    </th>
+                    <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider w-32">
+                      Last Week
+                    </th>
+                    <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider w-40">
+                      Current Qty
+                    </th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        ))}
+                </thead>
+                <tbody className="divide-y divide-gray-200">
+                  {cluster.products.map((product) => (
+                    <tr key={product.product_id} className="hover:bg-gray-50">
+                      <td className="px-4 py-3">
+                        <span className="inline-flex items-center px-2.5 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-800">
+                          {product.product_code}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-sm text-gray-900">
+                        {product.item_name}
+                      </td>
+                      <td className="px-4 py-3 text-sm text-gray-500 text-right">
+                        {product.previous_week_qty !== null ? product.previous_week_qty.toLocaleString() : '—'}
+                      </td>
+                      <td className="px-4 py-3 text-right">
+                        <input
+                          type="text"
+                          inputMode="numeric"
+                          pattern="[0-9]*"
+                          value={quantities[product.product_id] ?? ''}
+                          onChange={(e) => handleQuantityChange(product.product_id, e.target.value)}
+                          placeholder="0"
+                          className="w-24 px-3 py-1.5 text-right border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                        />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+
+              {/* WIP Products Section (within cluster) */}
+              {clusterWipProducts.length > 0 && (
+                <>
+                  <div className="bg-amber-50 px-4 py-2 border-t border-b border-amber-100 flex items-center gap-2">
+                    <Boxes className="h-4 w-4 text-amber-600" />
+                    <span className="text-sm font-medium text-amber-800">Work in Progress (Unpacked)</span>
+                  </div>
+                  <table className="min-w-full">
+                    <thead className="bg-amber-50/50">
+                      <tr>
+                        <th className="px-4 py-2 text-left text-xs font-medium text-amber-700 uppercase tracking-wider w-32">
+                          SKU Code
+                        </th>
+                        <th className="px-4 py-2 text-left text-xs font-medium text-amber-700 uppercase tracking-wider">
+                          Title
+                        </th>
+                        <th className="px-4 py-2 text-right text-xs font-medium text-amber-700 uppercase tracking-wider w-32">
+                          Capacity/Day
+                        </th>
+                        <th className="px-4 py-2 text-right text-xs font-medium text-amber-700 uppercase tracking-wider w-32">
+                          Last Week
+                        </th>
+                        <th className="px-4 py-2 text-right text-xs font-medium text-amber-700 uppercase tracking-wider w-40">
+                          Current Qty
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-amber-100">
+                      {clusterWipProducts.map((product) => (
+                        <tr key={product.product_id} className="hover:bg-amber-50/30">
+                          <td className="px-4 py-3">
+                            <span className="inline-flex items-center px-2.5 py-0.5 rounded text-xs font-medium bg-amber-100 text-amber-800">
+                              {product.product_code}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3 text-sm text-gray-900">
+                            {product.item_name}
+                          </td>
+                          <td className="px-4 py-3 text-sm text-amber-600 text-right">
+                            {product.production_capacity_per_day !== null
+                              ? product.production_capacity_per_day.toLocaleString() + '/day'
+                              : '—'}
+                          </td>
+                          <td className="px-4 py-3 text-sm text-gray-500 text-right">
+                            {product.previous_week_qty !== null ? product.previous_week_qty.toLocaleString() : '—'}
+                          </td>
+                          <td className="px-4 py-3 text-right">
+                            <input
+                              type="text"
+                              inputMode="numeric"
+                              pattern="[0-9]*"
+                              value={quantities[product.product_id] ?? ''}
+                              onChange={(e) => handleQuantityChange(product.product_id, e.target.value)}
+                              placeholder="0"
+                              className="w-24 px-3 py-1.5 text-right border border-amber-300 rounded-md focus:ring-2 focus:ring-amber-500 focus:border-amber-500"
+                            />
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </>
+              )}
+            </div>
+          );
+        })}
       </div>
 
-      {/* Work in Progress Section */}
-      {wipProducts.length > 0 && (
-        <div className="space-y-4">
-          <div className="flex items-center gap-2">
-            <Boxes className="h-5 w-5 text-amber-600" />
-            <h2 className="text-lg font-semibold text-gray-900">Work in Progress (Unpacked Stock)</h2>
-          </div>
-          <p className="text-sm text-gray-500">
-            Enter the quantity of unpacked/bulk product you have available. This represents raw materials or semi-finished goods that can be packed into finished products.
-          </p>
-
-          <div className="bg-white rounded-lg shadow overflow-hidden">
-            {/* WIP Header */}
-            <div className="bg-amber-50 px-4 py-3 border-b border-amber-100">
-              <h3 className="font-semibold text-amber-900">Unpacked Inventory</h3>
-              <p className="text-sm text-amber-600">{wipProducts.length} WIP items</p>
-            </div>
-
-            {/* WIP Products Table */}
-            <table className="min-w-full">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-32">
-                    SKU Code
-                  </th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Title
-                  </th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-36">
-                    For Cluster
-                  </th>
-                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider w-32">
-                    Capacity/Day
-                  </th>
-                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider w-32">
-                    Last Week
-                  </th>
-                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider w-40">
-                    Current Qty
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-200">
-                {wipProducts.map((product) => (
-                  <tr key={product.product_id} className="hover:bg-amber-50/30">
-                    <td className="px-4 py-3">
-                      <span className="inline-flex items-center px-2.5 py-0.5 rounded text-xs font-medium bg-amber-100 text-amber-800">
-                        {product.product_code}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 text-sm text-gray-900">
-                      {product.item_name}
-                    </td>
-                    <td className="px-4 py-3 text-sm text-gray-600">
-                      {product.cluster_label}
-                    </td>
-                    <td className="px-4 py-3 text-sm text-gray-500 text-right">
-                      {product.production_capacity_per_day !== null
-                        ? product.production_capacity_per_day.toLocaleString() + '/day'
-                        : '—'}
-                    </td>
-                    <td className="px-4 py-3 text-sm text-gray-500 text-right">
-                      {product.previous_week_qty !== null ? product.previous_week_qty.toLocaleString() : '—'}
-                    </td>
-                    <td className="px-4 py-3 text-right">
-                      <input
-                        type="text"
-                        inputMode="numeric"
-                        pattern="[0-9]*"
-                        value={quantities[product.product_id] ?? ''}
-                        onChange={(e) => handleQuantityChange(product.product_id, e.target.value)}
-                        placeholder="0"
-                        className="w-24 px-3 py-1.5 text-right border border-amber-300 rounded-md focus:ring-2 focus:ring-amber-500 focus:border-amber-500"
-                      />
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
