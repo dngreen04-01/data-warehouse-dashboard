@@ -1260,6 +1260,7 @@ class ProductForStock(BaseModel):
     item_name: str
     cluster_id: Optional[int] = None
     cluster_label: Optional[str] = None
+    klipon_stock: Optional[float] = None
     current_week_qty: Optional[int] = None
     previous_week_qty: Optional[int] = None
 
@@ -1315,6 +1316,7 @@ async def get_supplier_products(
                         p.product_id,
                         p.product_code,
                         p.item_name,
+                        p.quantity_on_hand,
                         c.cluster_id,
                         c.cluster_label
                     FROM dw.dim_product p
@@ -1396,6 +1398,7 @@ async def get_supplier_products(
                 "item_name": row["item_name"],
                 "cluster_id": cluster_id,
                 "cluster_label": cluster_label,
+                "klipon_stock": float(row["quantity_on_hand"]) if row["quantity_on_hand"] else 0,
                 "current_week_qty": stock["current"],
                 "previous_week_qty": stock["previous"]
             })

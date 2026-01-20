@@ -10,6 +10,7 @@ interface Product {
   item_name: string;
   cluster_id: number | null;
   cluster_label: string | null;
+  klipon_stock: number | null;
   current_week_qty: number | null;
   previous_week_qty: number | null;
 }
@@ -125,6 +126,12 @@ export default function SupplierStock() {
       setHasChanges(true);
       setSaveSuccess(false);
     }
+  };
+
+  const calculateTotalStock = (kliponStock: number | null, supplierQty: string) => {
+    const klipon = kliponStock ?? 0;
+    const supplier = supplierQty ? parseInt(supplierQty) : 0;
+    return (klipon + supplier).toLocaleString();
   };
 
   const handleSave = async () => {
@@ -316,11 +323,17 @@ export default function SupplierStock() {
                     <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                       Title
                     </th>
-                    <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider w-32">
+                    <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider w-28">
+                      Klipon Stock
+                    </th>
+                    <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider w-28">
                       Last Week
                     </th>
-                    <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider w-40">
-                      Current Qty
+                    <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider w-32">
+                      Supplier Stock
+                    </th>
+                    <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider w-28">
+                      Total Stock
                     </th>
                   </tr>
                 </thead>
@@ -336,6 +349,9 @@ export default function SupplierStock() {
                         {product.item_name}
                       </td>
                       <td className="px-4 py-3 text-sm text-gray-500 text-right">
+                        {product.klipon_stock !== null ? product.klipon_stock.toLocaleString() : '—'}
+                      </td>
+                      <td className="px-4 py-3 text-sm text-gray-500 text-right">
                         {product.previous_week_qty !== null ? product.previous_week_qty.toLocaleString() : '—'}
                       </td>
                       <td className="px-4 py-3 text-right">
@@ -348,6 +364,9 @@ export default function SupplierStock() {
                           placeholder="0"
                           className="w-24 px-3 py-1.5 text-right border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                         />
+                      </td>
+                      <td className="px-4 py-3 text-sm font-medium text-gray-900 text-right">
+                        {calculateTotalStock(product.klipon_stock, quantities[product.product_id] ?? '')}
                       </td>
                     </tr>
                   ))}
