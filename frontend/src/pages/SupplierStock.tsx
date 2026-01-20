@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
-import { Package, Save, Loader2, CheckCircle, Boxes } from 'lucide-react';
+import { Package, Save, Loader2, CheckCircle, Boxes, Pencil, AlertTriangle } from 'lucide-react';
 
 interface Product {
   product_id: number;
@@ -46,6 +46,13 @@ export default function SupplierStock() {
   const [weekEnding, setWeekEnding] = useState<string>('');
   const [quantities, setQuantities] = useState<Record<number, string>>({});
   const [hasChanges, setHasChanges] = useState(false);
+
+  // WIP Capacity Edit Modal State
+  const [editingWIP, setEditingWIP] = useState<WIPProduct | null>(null);
+  const [capacityValue, setCapacityValue] = useState<string>('');
+  const [confirmStep, setConfirmStep] = useState<1 | 2>(1);
+  const [savingCapacity, setSavingCapacity] = useState(false);
+  const [capacityError, setCapacityError] = useState<string | null>(null);
 
   useEffect(() => {
     fetchData();
@@ -157,6 +164,75 @@ export default function SupplierStock() {
       setError(err instanceof Error ? err.message : 'Failed to save');
     } finally {
       setSaving(false);
+    }
+  };
+
+  // WIP Capacity Edit Handlers
+  const openCapacityEdit = (product: WIPProduct) => {
+    setEditingWIP(product);
+    setCapacityValue(product.production_capacity_per_day?.toString() ?? '');
+    setConfirmStep(1);
+    setCapacityError(null);
+  };
+
+  const closeCapacityEdit = () => {
+    setEditingWIP(null);
+    setCapacityValue('');
+    setConfirmStep(1);
+    setCapacityError(null);
+  };
+
+  const handleCapacityInputChange = (value: string) => {
+    // Allow empty string or valid non-negative integers only
+    if (value === '' || /^\d+$/.test(value)) {
+      setCapacityValue(value);
+      setCapacityError(null);
+    }
+  };
+
+  const proceedToConfirm = () => {
+    if (!capacityValue || capacityValue === '') {
+      setCapacityError('Please enter a capacity value');
+      return;
+    }
+    const numValue = parseInt(capacityValue);
+    if (isNaN(numValue) || numValue < 0) {
+      setCapacityError('Please enter a valid positive integer');
+      return;
+    }
+    setConfirmStep(2);
+  };
+
+  const saveCapacity = async () => {
+    if (!session?.access_token || !editingWIP) return;
+
+    setSavingCapacity(true);
+    setCapacityError(null);
+
+    try {
+      const response = await fetch(`/api/wip-products/${editingWIP.product_id}/capacity`, {
+        method: 'PUT',
+        headers: {
+          'Authorization': `Bearer ${session.access_token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          production_capacity_per_day: parseInt(capacityValue)
+        })
+      });
+
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.detail || 'Failed to update capacity');
+      }
+
+      // Refresh data and close modal
+      await fetchData();
+      closeCapacityEdit();
+    } catch (err) {
+      setCapacityError(err instanceof Error ? err.message : 'Failed to update capacity');
+    } finally {
+      setSavingCapacity(false);
     }
   };
 
@@ -315,9 +391,20 @@ export default function SupplierStock() {
                             {product.item_name}
                           </td>
                           <td className="px-4 py-3 text-sm text-amber-600 text-right">
-                            {product.production_capacity_per_day !== null
-                              ? product.production_capacity_per_day.toLocaleString() + '/day'
-                              : '—'}
+                            <div className="flex items-center justify-end gap-2">
+                              <span>
+                                {product.production_capacity_per_day !== null
+                                  ? product.production_capacity_per_day.toLocaleString() + '/day'
+                                  : '—'}
+                              </span>
+                              <button
+                                onClick={() => openCapacityEdit(product)}
+                                className="p-1 text-amber-500 hover:text-amber-700 hover:bg-amber-100 rounded transition-colors"
+                                title="Edit capacity"
+                              >
+                                <Pencil className="h-3.5 w-3.5" />
+                              </button>
+                            </div>
                           </td>
                           <td className="px-4 py-3 text-sm text-gray-500 text-right">
                             {product.previous_week_qty !== null ? product.previous_week_qty.toLocaleString() : '—'}
@@ -344,6 +431,132 @@ export default function SupplierStock() {
         })}
       </div>
 
+      {/* WIP Capacity Edit Modal */}
+      {editingWIP && (
+        <div className="fixed inset-0 z-50 overflow-y-auto">
+          <div className="flex min-h-full items-center justify-center p-4">
+            {/* Backdrop */}
+            <div
+              className="fixed inset-0 bg-black/50 transition-opacity"
+              onClick={closeCapacityEdit}
+            />
+
+            {/* Modal */}
+            <div className="relative w-full max-w-md rounded-xl bg-white p-6 shadow-xl">
+              {confirmStep === 1 ? (
+                // Step 1: Edit Form
+                <>
+                  <div className="mb-6">
+                    <h2 className="text-lg font-semibold text-gray-900">Edit Production Capacity</h2>
+                    <p className="text-sm text-gray-500 mt-1">{editingWIP.item_name}</p>
+                    <p className="text-xs text-amber-600 font-mono">{editingWIP.product_code}</p>
+                  </div>
+
+                  <div className="space-y-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Production Capacity (units/day)
+                      </label>
+                      <input
+                        type="text"
+                        inputMode="numeric"
+                        pattern="[0-9]*"
+                        value={capacityValue}
+                        onChange={(e) => handleCapacityInputChange(e.target.value)}
+                        placeholder="Enter capacity"
+                        className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                        autoFocus
+                      />
+                      <p className="text-xs text-gray-500 mt-1">
+                        Current: {editingWIP.production_capacity_per_day !== null
+                          ? editingWIP.production_capacity_per_day.toLocaleString() + '/day'
+                          : 'Not set'}
+                      </p>
+                    </div>
+
+                    {capacityError && (
+                      <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
+                        {capacityError}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="mt-6 flex justify-end gap-3">
+                    <button
+                      onClick={closeCapacityEdit}
+                      className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      onClick={proceedToConfirm}
+                      className="rounded-lg bg-amber-600 px-4 py-2 text-sm font-medium text-white hover:bg-amber-700 transition-colors"
+                    >
+                      Continue
+                    </button>
+                  </div>
+                </>
+              ) : (
+                // Step 2: Confirmation
+                <>
+                  <div className="mb-6">
+                    <div className="flex items-center gap-3 mb-4">
+                      <div className="p-2 bg-amber-100 rounded-full">
+                        <AlertTriangle className="h-6 w-6 text-amber-600" />
+                      </div>
+                      <h2 className="text-lg font-semibold text-gray-900">Confirm Change</h2>
+                    </div>
+                    <p className="text-sm text-gray-600">
+                      This is a major change that will affect production planning. Please confirm you want to proceed.
+                    </p>
+                  </div>
+
+                  <div className="bg-gray-50 rounded-lg p-4 mb-6">
+                    <div className="text-sm">
+                      <div className="font-medium text-gray-900 mb-2">{editingWIP.item_name}</div>
+                      <div className="flex items-center gap-3">
+                        <span className="text-gray-500">
+                          {editingWIP.production_capacity_per_day !== null
+                            ? editingWIP.production_capacity_per_day.toLocaleString() + '/day'
+                            : 'Not set'}
+                        </span>
+                        <span className="text-gray-400">→</span>
+                        <span className="font-semibold text-amber-600">
+                          {parseInt(capacityValue).toLocaleString()}/day
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {capacityError && (
+                    <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm mb-4">
+                      {capacityError}
+                    </div>
+                  )}
+
+                  <div className="flex justify-end gap-3">
+                    <button
+                      onClick={() => setConfirmStep(1)}
+                      disabled={savingCapacity}
+                      className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors disabled:opacity-50"
+                    >
+                      Go Back
+                    </button>
+                    <button
+                      onClick={saveCapacity}
+                      disabled={savingCapacity}
+                      className="inline-flex items-center gap-2 rounded-lg bg-amber-600 px-4 py-2 text-sm font-medium text-white hover:bg-amber-700 disabled:opacity-50 transition-colors"
+                    >
+                      {savingCapacity && <Loader2 className="h-4 w-4 animate-spin" />}
+                      Confirm Change
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

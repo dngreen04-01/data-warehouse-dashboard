@@ -21,6 +21,8 @@ from datetime import date
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 import httpx
+from sendgrid import SendGridAPIClient
+from sendgrid.helpers.mail import Mail
 
 from api.auth import get_current_user, require_auth, require_role, UserClaims
 
@@ -1490,6 +1492,138 @@ async def get_current_week(
                     "week_ending_formatted": week_ending.strftime("%B %d, %Y")
                 }
     except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+class UpdateWIPCapacityRequest(BaseModel):
+    production_capacity_per_day: int  # Integer only
+
+
+def send_capacity_change_notification(
+    product_name: str,
+    product_code: str,
+    old_value: int | None,
+    new_value: int,
+    changed_by_email: str
+):
+    """Send email notification to super user when WIP capacity is changed."""
+    sg_key = os.getenv("SENDGRID_API_KEY")
+    if not sg_key:
+        print("Warning: SENDGRID_API_KEY not set, skipping email notification")
+        return
+
+    old_display = str(old_value) if old_value is not None else "Not set"
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    html_content = f"""
+    <html>
+    <body style="font-family: Arial, sans-serif;">
+        <h2>WIP Production Capacity Changed</h2>
+        <p>A production capacity change has been made:</p>
+        <table style="border-collapse: collapse; margin: 20px 0;">
+            <tr>
+                <td style="padding: 8px; border: 1px solid #ddd; font-weight: bold;">Product</td>
+                <td style="padding: 8px; border: 1px solid #ddd;">{product_name} ({product_code})</td>
+            </tr>
+            <tr>
+                <td style="padding: 8px; border: 1px solid #ddd; font-weight: bold;">Previous Capacity</td>
+                <td style="padding: 8px; border: 1px solid #ddd;">{old_display}/day</td>
+            </tr>
+            <tr>
+                <td style="padding: 8px; border: 1px solid #ddd; font-weight: bold;">New Capacity</td>
+                <td style="padding: 8px; border: 1px solid #ddd; color: #2563eb; font-weight: bold;">{new_value}/day</td>
+            </tr>
+            <tr>
+                <td style="padding: 8px; border: 1px solid #ddd; font-weight: bold;">Changed By</td>
+                <td style="padding: 8px; border: 1px solid #ddd;">{changed_by_email}</td>
+            </tr>
+            <tr>
+                <td style="padding: 8px; border: 1px solid #ddd; font-weight: bold;">Timestamp</td>
+                <td style="padding: 8px; border: 1px solid #ddd;">{timestamp}</td>
+            </tr>
+        </table>
+        <p style="color: #666; font-size: 12px;">This is an automated notification from the Data Warehouse system.</p>
+    </body>
+    </html>
+    """
+
+    message = Mail(
+        from_email='damien.green@brands.co.nz',
+        to_emails='damien.green@brands.co.nz',
+        subject=f'WIP Capacity Changed: {product_name}',
+        html_content=html_content
+    )
+
+    try:
+        sg = SendGridAPIClient(sg_key)
+        response = sg.send(message)
+        print(f"Capacity change notification sent. Status: {response.status_code}")
+    except Exception as e:
+        print(f"Failed to send capacity change notification: {e}")
+
+
+@app.put("/api/wip-products/{product_id}/capacity")
+async def update_wip_product_capacity(
+    product_id: int,
+    request: UpdateWIPCapacityRequest,
+    background_tasks: BackgroundTasks,
+    current_user: UserClaims = Depends(require_role(["supplier", "super_user"]))
+):
+    """Update production capacity for a WIP product. Sends email notification to super user."""
+    try:
+        with get_db_connection() as conn:
+            with conn.cursor(row_factory=dict_row) as cur:
+                # Verify product exists and is WIP type
+                cur.execute("""
+                    SELECT product_id, product_code, item_name, product_type, production_capacity_per_day
+                    FROM dw.dim_product
+                    WHERE product_id = %s
+                """, (product_id,))
+                product = cur.fetchone()
+
+                if not product:
+                    raise HTTPException(status_code=404, detail="Product not found")
+
+                if product["product_type"] != "wip":
+                    raise HTTPException(
+                        status_code=400,
+                        detail="Only WIP products can have production capacity updated"
+                    )
+
+                old_value = int(product["production_capacity_per_day"]) if product["production_capacity_per_day"] else None
+
+                # Update the capacity
+                cur.execute("""
+                    UPDATE dw.dim_product
+                    SET production_capacity_per_day = %s
+                    WHERE product_id = %s
+                """, (request.production_capacity_per_day, product_id))
+
+            conn.commit()
+
+        # Send email notification in background
+        background_tasks.add_task(
+            send_capacity_change_notification,
+            product["item_name"],
+            product["product_code"],
+            old_value,
+            request.production_capacity_per_day,
+            current_user.email
+        )
+
+        return {
+            "status": "ok",
+            "message": f"Production capacity updated to {request.production_capacity_per_day}/day",
+            "product_id": product_id,
+            "old_value": old_value,
+            "new_value": request.production_capacity_per_day
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
 
 
