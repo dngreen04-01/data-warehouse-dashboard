@@ -2,6 +2,8 @@ import { useState, useEffect } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { Package, Save, Loader2, CheckCircle, Boxes, Pencil, AlertTriangle } from 'lucide-react';
 
+const API_BASE = import.meta.env.VITE_API_URL || '';
+
 interface Product {
   product_id: number;
   product_code: string;
@@ -67,10 +69,10 @@ export default function SupplierStock() {
     try {
       // Fetch products and current week info in parallel
       const [productsRes, weekRes] = await Promise.all([
-        fetch('/api/supplier/products', {
+        fetch(`${API_BASE}/api/supplier/products`, {
           headers: { 'Authorization': `Bearer ${session.access_token}` }
         }),
-        fetch('/api/supplier/current-week', {
+        fetch(`${API_BASE}/api/supplier/current-week`, {
           headers: { 'Authorization': `Bearer ${session.access_token}` }
         })
       ]);
@@ -141,7 +143,7 @@ export default function SupplierStock() {
           quantity_on_hand: parseInt(qty)
         }));
 
-      const response = await fetch('/api/supplier/stock', {
+      const response = await fetch(`${API_BASE}/api/supplier/stock`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${session.access_token}`,
@@ -210,7 +212,7 @@ export default function SupplierStock() {
     setCapacityError(null);
 
     try {
-      const response = await fetch(`/api/wip-products/${editingWIP.product_id}/capacity`, {
+      const response = await fetch(`${API_BASE}/api/wip-products/${editingWIP.product_id}/capacity`, {
         method: 'PUT',
         headers: {
           'Authorization': `Bearer ${session.access_token}`,
