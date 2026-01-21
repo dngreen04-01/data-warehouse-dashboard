@@ -73,6 +73,7 @@ export default function Products() {
         setLoading(true);
         try {
             // Direct query to dw schema for inventory-tracked products with cluster info
+            // Excludes WIP products (work-in-progress at supplier)
             const { data, error } = await supabase
                 .schema('dw')
                 .from('dim_product')
@@ -104,6 +105,7 @@ export default function Products() {
                 `)
                 .eq('archived', false)
                 .eq('is_tracked_as_inventory', true)
+                .or('product_type.is.null,product_type.eq.finished')
                 .order('item_name');
 
             if (error) {
@@ -115,6 +117,7 @@ export default function Products() {
                     .select('*')
                     .eq('archived', false)
                     .eq('is_tracked_as_inventory', true)
+                    .or('product_type.is.null,product_type.eq.finished')
                     .order('item_name');
                 setProducts((fallbackData || []).map(p => ({
                     ...p,

@@ -9,6 +9,7 @@ import {
     UserPlus,
     FileText,
     Package,
+    Truck,
     UserCircle,
     ChevronRight,
     BarChart3,
@@ -170,6 +171,37 @@ export default function AppLayout({ children }: { children: ReactNode }) {
                                     </span>
                                 </div>
                                 {location.pathname === '/users' && (
+                                    <ChevronRight className="h-4 w-4 text-purple-500" />
+                                )}
+                            </Link>
+                            <Link
+                                to="/supplier/stock"
+                                onClick={() => setSidebarOpen(false)}
+                                className={clsx(
+                                    'group flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-200',
+                                    location.pathname === '/supplier/stock'
+                                        ? 'bg-purple-50 text-purple-700 shadow-sm'
+                                        : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
+                                )}
+                            >
+                                <div className={clsx(
+                                    'flex h-9 w-9 items-center justify-center rounded-lg transition-colors',
+                                    location.pathname === '/supplier/stock'
+                                        ? 'bg-purple-100 text-purple-700'
+                                        : 'bg-gray-100 text-gray-500 group-hover:bg-gray-200 group-hover:text-gray-700'
+                                )}>
+                                    <Truck className="h-5 w-5" />
+                                </div>
+                                <div className="flex-1">
+                                    <span className="block">Supplier Portal</span>
+                                    <span className={clsx(
+                                        'text-xs',
+                                        location.pathname === '/supplier/stock' ? 'text-purple-600' : 'text-gray-400'
+                                    )}>
+                                        View supplier stock page
+                                    </span>
+                                </div>
+                                {location.pathname === '/supplier/stock' && (
                                     <ChevronRight className="h-4 w-4 text-purple-500" />
                                 )}
                             </Link>

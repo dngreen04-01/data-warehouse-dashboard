@@ -23,14 +23,21 @@ Observable behavior: Navigate to Cluster Analytics and see a new "Total Stock Co
 - [x] Milestone 1: Database schema changes for WIP products
 - [x] Milestone 2: Auto-create "XXX Unpacked" products for each product cluster
 - [x] Milestone 3: Update supplier portal to include WIP products
-- [ ] Milestone 4: Update report queries to exclude WIP products
-- [ ] Milestone 5: Comprehensive stock aggregation UI
+- [x] Milestone 4: Update report queries to exclude WIP products
+- [x] Milestone 5: Comprehensive stock aggregation UI
 
 Note: Demand-based calculations and alerting are out of scope for this implementation. Production capacity is stored for future demand planning features.
 
 ## Surprises & Discoveries
 
-(To be populated during implementation.)
+**2026-01-21 - CRITICAL BUG: Customer Merge Logic Accidentally Removed**
+- **Issue**: The `mart.sales_enriched` view recreation in Milestone 4 accidentally removed the customer merge logic clause `OR c.master_customer_id IS NOT NULL`
+- **Impact**: All sales from archived/merged customers were excluded from reports, causing significant data loss in dashboard (especially January sales)
+- **Root Cause**: When adding WIP exclusion filters, the original customer filtering logic was simplified incorrectly
+- **Original (correct)**: `AND (c.archived IS DISTINCT FROM true OR c.master_customer_id IS NOT NULL)`
+- **Broken**: `AND (c.archived IS DISTINCT FROM true)`
+- **Fix**: Restored the `OR c.master_customer_id IS NOT NULL` clause
+- **Hotfix file**: `supabase/migrations/HOTFIX_20260121_fix_sales_view.sql`
 
 ## Decision Log
 
@@ -58,7 +65,16 @@ Note: Demand-based calculations and alerting are out of scope for this implement
 
 ## Outcomes & Retrospective
 
-(To be populated during and after implementation.)
+**2026-01-20 - Milestone 5 Complete**
+- Created `get_cluster_stock_totals()` RPC in `20260121_stock_aggregation.sql`
+- Updated ClusterAnalytics.tsx with comprehensive stock position UI showing:
+  - Our Stock (from dim_product.quantity_on_hand)
+  - Supplier Finished Stock (from supplier_stock_entry for finished products)
+  - Supplier WIP Stock (from supplier_stock_entry for WIP products)
+  - Total Available (sum of all sources)
+  - Production Capacity/Day (from WIP products)
+- Added visual stock breakdown bar chart showing proportions
+- All milestones complete - WIP product feature is fully implemented
 
 ## Context and Orientation
 

@@ -153,6 +153,7 @@ def fetch_products(conn, price_source: str = "xero", product_group: str | None =
         FROM dw.dim_product
         WHERE archived = false
           AND is_tracked_as_inventory = true
+          AND (product_type IS NULL OR product_type = 'finished')
     """
     params = []
 
@@ -214,7 +215,7 @@ def fetch_customer_products(conn, customer_id: str, include_all: bool = False) -
             "merchant_group": row[2]
         }
 
-        # Get products with effective prices
+        # Get products with effective prices (exclude WIP products)
         if include_all:
             cur.execute("""
                 SELECT p.item_name,
@@ -226,7 +227,9 @@ def fetch_customer_products(conn, customer_id: str, include_all: bool = False) -
                     ON cpl.customer_id = %s AND cpl.is_active = true AND cpl.effective_to IS NULL
                 LEFT JOIN dw.customer_price_override cpo
                     ON cpo.price_list_id = cpl.price_list_id AND cpo.product_id = p.product_id
-                WHERE p.archived = false AND p.is_tracked_as_inventory = true
+                WHERE p.archived = false
+                  AND p.is_tracked_as_inventory = true
+                  AND (p.product_type IS NULL OR p.product_type = 'finished')
                 ORDER BY p.item_name
             """, (customer_id,))
         else:
@@ -235,7 +238,10 @@ def fetch_customer_products(conn, customer_id: str, include_all: bool = False) -
                 FROM dw.customer_price_list cpl
                 JOIN dw.customer_price_override cpo ON cpo.price_list_id = cpl.price_list_id
                 JOIN dw.dim_product p ON p.product_id = cpo.product_id
-                WHERE cpl.customer_id = %s AND cpl.is_active = true AND cpl.effective_to IS NULL
+                WHERE cpl.customer_id = %s
+                  AND cpl.is_active = true
+                  AND cpl.effective_to IS NULL
+                  AND (p.product_type IS NULL OR p.product_type = 'finished')
                 ORDER BY p.item_name
             """, (customer_id,))
 

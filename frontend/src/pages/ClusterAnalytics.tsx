@@ -1,6 +1,6 @@
 import { useEffect, useState, useMemo } from 'react';
 import { supabase } from '@/lib/supabase';
-import { Loader2, Package, TrendingUp, BarChart3, ChevronUp, ChevronDown, ArrowUpDown, Calendar } from 'lucide-react';
+import { Loader2, Package, TrendingUp, BarChart3, ChevronUp, ChevronDown, ArrowUpDown, Calendar, Warehouse, Factory, Boxes } from 'lucide-react';
 import {
     XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Bar, Line, ComposedChart, Legend
 } from 'recharts';
@@ -37,6 +37,17 @@ interface TimeSeriesPoint {
     period_date: string;
     total_units_sold: number;
     total_revenue: number;
+}
+
+interface ClusterStockTotals {
+    cluster_id: number;
+    cluster_label: string;
+    base_unit_label: string | null;
+    our_units_on_hand: number;
+    supplier_finished_units: number;
+    supplier_wip_units: number;
+    total_available_units: number;
+    production_capacity_per_day: number;
 }
 
 type SortField = 'units_on_hand' | 'units_sold_30d' | 'revenue_30d' | 'unit_multiplier';
@@ -80,6 +91,10 @@ export default function ClusterAnalytics() {
     // State for time series chart
     const [timeSeriesData, setTimeSeriesData] = useState<TimeSeriesPoint[]>([]);
     const [timeSeriesLoading, setTimeSeriesLoading] = useState(false);
+
+    // State for stock totals (comprehensive stock aggregation)
+    const [stockTotals, setStockTotals] = useState<ClusterStockTotals | null>(null);
+    const [stockTotalsLoading, setStockTotalsLoading] = useState(false);
     const [dateRange, setDateRange] = useState({
         start: format(subDays(new Date(), 90), 'yyyy-MM-dd'),
         end: format(new Date(), 'yyyy-MM-dd')
@@ -94,14 +109,16 @@ export default function ClusterAnalytics() {
         fetchClusterSummaries();
     }, []);
 
-    // Fetch product details when a cluster is selected
+    // Fetch product details and stock totals when a cluster is selected
     useEffect(() => {
         if (selectedCluster) {
             fetchProductDetails(selectedCluster.cluster_id);
             fetchTimeSeries(selectedCluster.cluster_id);
+            fetchStockTotals(selectedCluster.cluster_id);
         } else {
             setProductDetails([]);
             setTimeSeriesData([]);
+            setStockTotals(null);
         }
     }, [selectedCluster]);
 
@@ -166,6 +183,24 @@ export default function ClusterAnalytics() {
             setTimeSeriesData([]);
         } finally {
             setTimeSeriesLoading(false);
+        }
+    };
+
+    const fetchStockTotals = async (clusterId: number) => {
+        setStockTotalsLoading(true);
+        try {
+            const { data, error: rpcError } = await supabase.rpc('get_cluster_stock_totals');
+            if (rpcError) throw rpcError;
+            // Find the matching cluster from the results
+            const clusterData = (data || []).find(
+                (item: ClusterStockTotals) => item.cluster_id === clusterId
+            );
+            setStockTotals(clusterData || null);
+        } catch (err) {
+            console.error('Error fetching stock totals:', err);
+            setStockTotals(null);
+        } finally {
+            setStockTotalsLoading(false);
         }
     };
 
@@ -330,6 +365,167 @@ export default function ClusterAnalytics() {
             {/* Selected Cluster Details */}
             {selectedCluster && (
                 <div className="space-y-6">
+                    {/* Stock Position - Comprehensive Stock Aggregation */}
+                    <div className="rounded-xl border bg-white p-6 shadow-sm">
+                        <div className="mb-6">
+                            <h2 className="text-lg font-semibold text-gray-900">
+                                {selectedCluster.cluster_label} - Stock Position
+                            </h2>
+                            <p className="text-sm text-gray-500">
+                                Comprehensive view of all available stock sources
+                            </p>
+                        </div>
+
+                        {stockTotalsLoading ? (
+                            <div className="flex items-center justify-center py-8">
+                                <Loader2 className="h-6 w-6 animate-spin text-blue-600" />
+                            </div>
+                        ) : stockTotals ? (
+                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+                                {/* Our Stock */}
+                                <div className="rounded-lg border border-blue-100 bg-blue-50 p-4">
+                                    <div className="flex items-center gap-2 mb-2">
+                                        <Warehouse className="h-4 w-4 text-blue-600" />
+                                        <span className="text-xs font-medium text-blue-700 uppercase tracking-wide">
+                                            Our Stock
+                                        </span>
+                                    </div>
+                                    <p className="text-2xl font-bold text-blue-900">
+                                        {formatNumber(stockTotals.our_units_on_hand)}
+                                    </p>
+                                    <p className="text-xs text-blue-600">
+                                        {stockTotals.base_unit_label || 'units'}
+                                    </p>
+                                </div>
+
+                                {/* Supplier Finished Stock */}
+                                <div className="rounded-lg border border-green-100 bg-green-50 p-4">
+                                    <div className="flex items-center gap-2 mb-2">
+                                        <Boxes className="h-4 w-4 text-green-600" />
+                                        <span className="text-xs font-medium text-green-700 uppercase tracking-wide">
+                                            Supplier Finished
+                                        </span>
+                                    </div>
+                                    <p className="text-2xl font-bold text-green-900">
+                                        {formatNumber(stockTotals.supplier_finished_units)}
+                                    </p>
+                                    <p className="text-xs text-green-600">
+                                        {stockTotals.base_unit_label || 'units'}
+                                    </p>
+                                </div>
+
+                                {/* Supplier WIP Stock */}
+                                <div className="rounded-lg border border-amber-100 bg-amber-50 p-4">
+                                    <div className="flex items-center gap-2 mb-2">
+                                        <Factory className="h-4 w-4 text-amber-600" />
+                                        <span className="text-xs font-medium text-amber-700 uppercase tracking-wide">
+                                            Supplier WIP
+                                        </span>
+                                    </div>
+                                    <p className="text-2xl font-bold text-amber-900">
+                                        {formatNumber(stockTotals.supplier_wip_units)}
+                                    </p>
+                                    <p className="text-xs text-amber-600">
+                                        {stockTotals.base_unit_label || 'units'}
+                                    </p>
+                                </div>
+
+                                {/* Total Available */}
+                                <div className="rounded-lg border border-purple-100 bg-purple-50 p-4">
+                                    <div className="flex items-center gap-2 mb-2">
+                                        <Package className="h-4 w-4 text-purple-600" />
+                                        <span className="text-xs font-medium text-purple-700 uppercase tracking-wide">
+                                            Total Available
+                                        </span>
+                                    </div>
+                                    <p className="text-2xl font-bold text-purple-900">
+                                        {formatNumber(stockTotals.total_available_units)}
+                                    </p>
+                                    <p className="text-xs text-purple-600">
+                                        {stockTotals.base_unit_label || 'units'}
+                                    </p>
+                                </div>
+
+                                {/* Production Capacity */}
+                                <div className="rounded-lg border border-gray-200 bg-gray-50 p-4">
+                                    <div className="flex items-center gap-2 mb-2">
+                                        <TrendingUp className="h-4 w-4 text-gray-600" />
+                                        <span className="text-xs font-medium text-gray-700 uppercase tracking-wide">
+                                            Capacity/Day
+                                        </span>
+                                    </div>
+                                    <p className="text-2xl font-bold text-gray-900">
+                                        {stockTotals.production_capacity_per_day > 0
+                                            ? formatNumber(stockTotals.production_capacity_per_day)
+                                            : '—'}
+                                    </p>
+                                    <p className="text-xs text-gray-500">
+                                        {stockTotals.production_capacity_per_day > 0
+                                            ? `${stockTotals.base_unit_label || 'units'}/day`
+                                            : 'Not set'}
+                                    </p>
+                                </div>
+                            </div>
+                        ) : (
+                            <div className="text-center py-8 text-gray-500">
+                                <Package className="h-10 w-10 mx-auto text-gray-300 mb-2" />
+                                <p className="text-sm">No stock data available</p>
+                            </div>
+                        )}
+
+                        {/* Stock Breakdown Summary */}
+                        {stockTotals && stockTotals.total_available_units > 0 && (
+                            <div className="mt-6 pt-4 border-t border-gray-100">
+                                <p className="text-xs text-gray-500 mb-2 uppercase tracking-wide font-medium">
+                                    Stock Breakdown
+                                </p>
+                                <div className="flex h-3 rounded-full overflow-hidden bg-gray-100">
+                                    {stockTotals.our_units_on_hand > 0 && (
+                                        <div
+                                            className="bg-blue-500"
+                                            style={{
+                                                width: `${(stockTotals.our_units_on_hand / stockTotals.total_available_units) * 100}%`
+                                            }}
+                                            title={`Our Stock: ${formatNumber(stockTotals.our_units_on_hand)}`}
+                                        />
+                                    )}
+                                    {stockTotals.supplier_finished_units > 0 && (
+                                        <div
+                                            className="bg-green-500"
+                                            style={{
+                                                width: `${(stockTotals.supplier_finished_units / stockTotals.total_available_units) * 100}%`
+                                            }}
+                                            title={`Supplier Finished: ${formatNumber(stockTotals.supplier_finished_units)}`}
+                                        />
+                                    )}
+                                    {stockTotals.supplier_wip_units > 0 && (
+                                        <div
+                                            className="bg-amber-500"
+                                            style={{
+                                                width: `${(stockTotals.supplier_wip_units / stockTotals.total_available_units) * 100}%`
+                                            }}
+                                            title={`Supplier WIP: ${formatNumber(stockTotals.supplier_wip_units)}`}
+                                        />
+                                    )}
+                                </div>
+                                <div className="flex gap-4 mt-2 text-xs text-gray-500">
+                                    <span className="flex items-center gap-1">
+                                        <span className="w-2 h-2 rounded-full bg-blue-500" />
+                                        Our Stock
+                                    </span>
+                                    <span className="flex items-center gap-1">
+                                        <span className="w-2 h-2 rounded-full bg-green-500" />
+                                        Supplier Finished
+                                    </span>
+                                    <span className="flex items-center gap-1">
+                                        <span className="w-2 h-2 rounded-full bg-amber-500" />
+                                        Supplier WIP
+                                    </span>
+                                </div>
+                            </div>
+                        )}
+                    </div>
+
                     {/* Time Series Chart */}
                     <div className="rounded-xl border bg-white p-6 shadow-sm">
                         <div className="flex items-center justify-between mb-6">
